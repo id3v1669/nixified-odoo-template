@@ -1,5 +1,12 @@
 config:
 {
+  MODULE_PREFIX = config.modulePrefix;
+  TICKET_PREFIX = config.ticketPrefix;
+  CUSTOM_REPO_NAME = config.customRepoName;
+  PROD_REMOTE_PROJECT_DIR = config.prodRemoteProjectDir;
+  PROD_REMOTE_ODOO_CONF = config.prodRemoteOdooConf;
+  PROD_DB_NAME = config.prodDbName;
+  PROD_LINK_ADDONS_CMD = config.prodLinkAddonsCmd;
   PROJECT_NAME = config.projectName;
   PROJECT_DIR_VAR = config.projectDirVar;
   ODOO_VERSION = config.odooVersion;

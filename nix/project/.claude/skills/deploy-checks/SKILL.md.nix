@@ -1,0 +1,132 @@
+{ config, lib }:
+let
+  orgMatch = builtins.match ".*[:/]([^/]+)/[{][}].*" config.customRepoPattern;
+  repoOrg = if orgMatch == null then "my-org" else builtins.head orgMatch;
+in ''
+---
+name: deploy-checks
+description: "Deploy risk tooling: blast-radius classification of an addons change set (high/medium/low risk to business documents) + post-deploy invariant check (read-only SQL via ${config.derived.odooCmd} shell: unbalanced postings, failed queue jobs, stuck crons, negative stock). Use before a deploy to tag its risk, after a deploy to verify invariants (T+0 and again ~T+60), or on demand to health-check a database."
+argument-hint: "[blast-radius <git-range> | invariants [since-timestamp]]"
+---
+
+# Deploy checks
+
+Two standalone scripts under `$${config.projectDirVar}/.claude/skills/deploy-checks/scripts/`.
+Wire them into your deploy procedure: blast radius decides how much post-deploy
+checking a change earns; the invariant check is that checking.
+
+## Blast radius — tag a change set before deploying
+
+```bash
+python3 .../scripts/blast-radius.py --repo src/${config.customRepoName} --range origin/${config.odooVersion}..HEAD
+```
+
+Prints one `MODULE <name>: <tier> -- <reasons>` line per touched module, then
+`BLAST_RADIUS=<high|medium|low>` (the max) for scripting.
+
+- **high** — code creating/mutating business documents (journal entries, stock
+  moves, payslips), raw SQL writes, `store=True` field definitions (schema
+  change + recompute during `-u`), migration scripts
+- **medium** — other server-side `.py`, `security/`, `data/`, manifests
+- **low** — views, reports, static assets, docs, tests, translations
+
+Content-aware mode (`--repo` + `--range`) scans the changed lines; from a bare
+PR file list use `--files-from -` (path heuristics only — weaker, says so in
+the output). Project-specific high-risk models: `BLAST_HIGH_MODELS=my.model,…`.
+
+Recommended policy: **high** → run the invariant check at T+0 and again ~T+60
+after the deploy; **medium** → T+0; **low** → deploy as usual. Pass the tier
+into the check as `INV_TIER=<tier>` — it gates the `deep_check()` set below.
+
+## Invariant check — verify the database after deploying
+
+Read-only. Runs inside `${config.derived.odooCmd} shell`, so it needs no ports or credentials beyond
+a config file. Local database:
+
+```bash
+INV_SINCE="<deploy time UTC, YYYY-MM-DD HH:MM:SS>" \
+  ${config.derived.odooCmd} shell -c $${config.projectDirVar}/odoo.conf --no-http \
+  < .../scripts/invariant-check.py
+```
+${lib.optionalString (config.prodSshHost != "") ''
+
+Against production (script stays local, streams over stdin; `--no-http` is
+mandatory next to a live service):
+
+```bash
+cat .../scripts/invariant-check.py .../scripts/invariant_local.py | \
+  ssh -F "$${config.projectDirVar}/.ssh/config" prod \
+  'INV_SINCE="..." python <odoo-bin> shell -c <conf> -d <db> --no-http'
+```
+
+(`INV_*` must be set on the REMOTE side of the ssh command, as above.)
+''}
+
+Core checks — each prints `INVARIANT <name>: PASS|FAIL|WARN|SKIP -- detail`:
+
+| check | severity | meaning |
+|---|---|---|
+| `unbalanced_moves` | FAIL | posted journal entries since `INV_SINCE` that don't balance |
+| `failed_queue_jobs` | FAIL | new `queue.job` failures since `INV_SINCE` (skips if not installed) |
+| `stuck_crons` | WARN | active crons overdue > `INV_CRON_GRACE_HOURS` (default 2) |
+| `negative_internal_stock` | WARN | internal-location on-hand freshly negative since `INV_SINCE` |
+
+Callers grep `": FAIL"` / `": WARN"`. `INV_SKIP=name,name` disables checks —
+e.g. skip `negative_internal_stock` on projects with a custom availability
+model and encode the real rule in `invariant_local.py` instead.
+
+## Schema silence — a clean deploy emits no schema statements
+
+`-u` of an unchanged module must print **nothing** here; every line is a table
+rewrite you pay on every deploy (and, on a live service, a deadlock lottery
+ticket — the usual cause is an override changing a core field's computed
+schema, see `code-patterns` references/migrations.md):
+
+```bash
+${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u <module> --workers 0 --stop-after-init \
+     --log-handler odoo.schema:DEBUG --logfile=/dev/stdout | grep -E "odoo.schema:"
+```
+
+Duplicate constraints already accumulated by such churn:
+
+```sql
+SELECT c.relname, a.attname, count(*) FROM pg_constraint fk
+JOIN pg_class c ON fk.conrelid = c.oid
+JOIN pg_attribute a ON a.attrelid = c.oid AND fk.conkey[1] = a.attnum
+WHERE fk.contype = 'f' AND array_length(fk.conkey, 1) = 1
+GROUP BY 1, 2 HAVING count(*) > 1 ORDER BY 3 DESC;
+```
+
+## Migrations: verify the effect, not the exit code
+
+A migration script can silently not run — on a first INSTALL (migrations fire
+on upgrade only), and occasionally on an upgrade (`MigrationManager` drops a
+version whose file glob came back empty at graph build). The deploy exits 0
+and the log looks clean either way. After any deploy that depends on a
+migration, count the rows it was supposed to change; keep a standalone twin of
+the migration body for manual runs. Details: `code-patterns`
+references/migrations.md.
+
+## Project-local invariants
+
+`scripts/invariant_local.py` is **project-owned** (edit it, keep your version on
+`copier update`). It is appended after the core script on the same stdin
+(`cat core local | ${config.derived.odooCmd} shell …`), so `sql()` / `report()` / `check()` /
+`deep_check()` / `SINCE` are already defined. Encode the guarantees specific to
+your modules — the checks that would page you if they ever went false.
+
+Two levels of registration:
+
+- `check(name, fn)` — runs on every invocation.
+- `deep_check(name, fn)` — runs only when the invocation is tagged
+  `INV_TIER=high` (unset or empty counts as high), otherwise prints a `SKIP`
+  line naming the tier. Put behind it the scans too expensive for every deploy,
+  and the checks reading a back-end that needs its own cron to catch up before
+  the answer means anything.
+
+Prod carries chronic breakage in most reporting tools, so a check that counts
+findings should grade them against the **equal-length window before**
+`INV_SINCE`: at the usual rate that is a `WARN`, and only a rate past the
+baseline is the deploy's `FAIL`. A count with no baseline fires on every
+deploy and trains everyone to ignore the line.
+''

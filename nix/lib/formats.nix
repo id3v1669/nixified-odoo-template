@@ -54,6 +54,9 @@ let
     args = [ "-c" "set -a; source .env && { set +a; exec ${command}; }" ];
   };
 in {
+  ".nixodoo/env.sh" = pkgs.writeText "project-env.sh" (lib.concatStrings (lib.mapAttrsToList
+    (name: value: "export ${name}=${lib.escapeShellArg (toString value)}\n")
+    (import ./script-env.nix config)));
   "repos.yaml" = yaml.generate "repos.yaml" baseRepos;
   "addons.yaml" = pkgs.runCommand "addons.yaml" { } (
     lib.concatStringsSep "\nprintf '\\n---\\n' >> \"$out\"\n"

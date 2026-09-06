@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Restore the prod seed dump into an independent per-session DB wt_<slug> on the
+# running cluster (NO pg_ctl; parallel-safe). The dump in backup/ is RAW PROD:
+# run Odoo's native neutralization (`odoo neutralize`; every installed module's
+# data/neutralize.sql: mail blocked, crons off, O2O backend deactivated, banner
+# on), then the shared $PROJ/nix/scripts/dev-fixup.sql (admin/admin, requeue
+# stuck queue jobs, bump the document sequences past the dump's imported names). Needs the session odoo.conf; wt-start writes it first.
+# Idempotent: if wt_<slug> already exists it is reused (re-run wt-start is cheap).
+#
+# Usage: wt-restore.sh <slug>
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wt-common.sh"
+
+SLUG="${1:?usage: wt-restore.sh <slug>}"
+DB="$(db_name_for "$SLUG")"
+CONF="$WT_ENVROOT/$SLUG/odoo.conf"
+
+# Reuse only a COMPLETE restore: database.is_neutralized is written by the
+# very last step of this script, so its absence means an earlier run was
+# interrupted (the old bare-existence check kept reusing such broken DBs).
+if db_exists "$DB"; then
+    if [ "$("${PSQL[@]}" -d "$DB" -tAc "SELECT value FROM ir_config_parameter WHERE key='database.is_neutralized'" 2>/dev/null)" = "true" ]; then
+        echo "STATUS: db-reused ($DB)"; exit 0
+    fi
+    echo "STATUS: db-incomplete ($DB); previous restore never finished; recreating …"
+fi
+
+DUMP="$(ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | head -1 || true)"
+[ -n "$DUMP" ] || { echo "ERROR: no dump in $BACKUP_DIR; ${BACKUP_HINT} first" >&2; exit 1; }
+[ -f "$CONF" ] || { echo "ERROR: $CONF missing; wt-start writes it before the restore" >&2; exit 1; }
+
+RESTORE_LOG="$WT_ENVROOT/$SLUG/pg_restore.log"
+# Parallel restore, deliberately capped lower than the main env: worktree
+# sessions are meant to run side by side, and every job holds a connection on
+# the SHARED cluster alongside each session's Odoo workers. Half the cores,
+# max 4. PG_RESTORE_JOBS overrides (1 = the old serial behaviour).
+RESTORE_JOBS="${PG_RESTORE_JOBS:-$(( $(nproc 2>/dev/null || echo 4) / 2 ))}"
+if [ "$RESTORE_JOBS" -lt 1 ]; then RESTORE_JOBS=1; fi
+if [ "$RESTORE_JOBS" -gt 4 ]; then RESTORE_JOBS=4; fi
+echo "STATUS: restoring $DB from $(basename "$DUMP") … ($RESTORE_JOBS jobs, errors: $RESTORE_LOG)"
+"${PSQL[@]}" -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$DB' AND pid<>pg_backend_pid();" >/dev/null 2>&1 || true
+"${PSQL[@]}" -d postgres -c "DROP DATABASE IF EXISTS $DB;" >/dev/null
+"${PSQL[@]}" -d postgres -c "CREATE DATABASE $DB OWNER ${PGUSER};" >/dev/null
+pg_restore --clean --no-acl --no-owner -j "$RESTORE_JOBS" -h localhost -p "${PGPORT}" -U "${PGUSER}" -d "$DB" "$DUMP" 2>"$RESTORE_LOG" || true
+
+[ "$("${PSQL[@]}" -d "$DB" -tAc "SELECT count(*) FROM res_users" 2>/dev/null)" -gt 0 ] 2>/dev/null \
+    || { echo "ERROR: restore incomplete (res_users empty); see $RESTORE_LOG" >&2; exit 1; }
+
+echo "STATUS: neutralizing $DB (odoo neutralize) …"
+env "$PROJECT_DIR_VAR=$PROJ" "$ODOO_CMD" neutralize -c "$CONF"
+
+# Dev fixups (psql continues past any table this dump lacks).
+"${PSQL[@]}" -d "$DB" -f "$PROJ/nix/scripts/dev-fixup.sql" || true
+
+echo "STATUS: db-ready ($DB)"

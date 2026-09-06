@@ -1,0 +1,136 @@
+{ config, lib }:
+let
+  orgMatch = builtins.match ".*[:/]([^/]+)/[{][}].*" config.customRepoPattern;
+  repoOrg = if orgMatch == null then "my-org" else builtins.head orgMatch;
+in ''
+---
+name: find-code
+description: "Answers: where is this DEFINED, who USES it, who OVERRIDES it, what does super() actually call, which modules EXTEND this model, what fields does a model have — and, via the database, whether a FIELD EXISTS at all, who owns it and how filled it is. Semantic (Odoo Language Server + AST), whole tree (core + OCA + custom), MRO-aware. The trigger is a TREE-WIDE search for a symbol: any `grep -r <identifier>` over src/ — who-uses, who-defines, who-extends — is this skill's question, and ONE command answers it (`lsp.py who <identifier>`, or `model <model.name>`), while a hand-scoped grep silently misses the repos left out of the command. NOT this skill's question: `grep -n` inside one already-known file to pin a line (that is this skill's own first step), and plain strings — comments, logs, data files, error-message text. Field existence/ownership/fill goes to `dbfields.py` (ir.model.fields), because the source index has NO field symbols and the tree cannot see Studio or data-created fields."
+argument-hint: "[who <identifier> | def|refs|hover|sym|model <args>]"
+---
+
+# Find Odoo Code (LSP + AST)
+
+## Route first
+
+- Location UNKNOWN, or the question fans out (who uses / overrides / extends X?)
+  → `who` / `model` / `sym` FIRST. Never answer a fan-out with a hand-scoped
+  `grep -r`: the directories left out of the command are exactly where the
+  surprise lives.
+- File already KNOWN (a traceback line, a file being edited) → `grep -n` there
+  is right, and is this skill's own first step; add `def` / `hover` / `refs`
+  when the question becomes MRO, type or callers.
+
+Three tools, no running Odoo needed:
+
+- `lsp.py` — client for the official **Odoo Language Server**. Point queries: definition, usages, hover, symbol search. Knows `_inherit`, MRO order, XML.
+- `inspect.py` — AST full-model map: every field/method from every inheriting module in one table.
+- `dbfields.py` — the DATABASE's view of fields: `ir.model.fields` + per-column fill rates against the DB `odoo.conf` points at. The only one of the three that sees Studio/manual/data-created fields, and the only one that says how populated a column is.
+
+## Task
+
+$ARGUMENTS
+
+## Point queries (`lsp.py`)
+
+```bash
+L=.claude/skills/find-code/lsp.py   # run from project root; lines are 1-based (grep -n)
+
+python3 $L who   <identifier>             # ONE command: definition(s) + every reference
+python3 $L def   <file> <line> <symbol>   # definition; on super().foo() -> the MRO chain
+python3 $L refs  <file> <line> <symbol>   # usages (lower bound — see caveats)
+python3 $L hover <file> <line> <symbol>   # type, owning module(s), docstring
+python3 $L sym   <query>                  # workspace-wide symbol search
+python3 $L model <model.name>             # every class defining/extending the model
+python3 $L open  <file>                   # push current file content to the server
+python3 $L bump  <version>                # install an odoo-ls release, repoint 'current'
+python3 $L status|restart|stop            # daemon lifecycle
+```
+
+`<symbol>` is text on that line (column computed automatically), or an explicit 1-based column.
+
+The flow: grep -n pins the line, lsp answers the semantic question:
+
+```bash
+# Which implementations does this super().foo() walk, in MRO order? (grep cannot answer this)
+grep -n "def _action_done" src/${if config.customRepoName != "" then config.customRepoName else "your-addons"}/${config.modulePrefix}_stock/models/stock_picking.py   # -> line N
+python3 $L def src/${if config.customRepoName != "" then config.customRepoName else "your-addons"}/${config.modulePrefix}_stock/models/stock_picking.py N _action_done
+
+# Where is the parent view of an XML inherit_id ref? -> one exact hit in the defining module
+python3 $L def path/to/views/some_view.xml <line-of-inherit_id> <the.xml_id>
+
+# All modules touching a model (instead of: grep -rn '_inherit = "stock.move"')
+python3 $L model stock.move
+
+# Who reads this field / calls this method? One command, no file needed.
+python3 $L who <field_name>
+```
+
+## Routing: which tool answers which question
+
+| Question | Tool |
+|---|---|
+| What does `super().x()` resolve to / MRO order | `lsp def` |
+| Where is this XML id / model string defined | `lsp def` on the XML line |
+| Field/method owner + signature + docstring | `lsp hover` |
+| All definitions/extensions of a model | `lsp model` (or `inspect.py` for fields too) |
+| Usages of a symbol, location unknown | `lsp who` **then** grep to cross-check |
+| Usages from a known def site | `lsp refs` **then** grep to cross-check |
+| Full field inventory of a model | `inspect.py` (source) / `dbfields.py` (database) |
+| Does field X exist, who owns it, how filled is it | `dbfields.py` — never `lsp sym`, which has no field symbols |
+| Plain text, comments, data files, logs | grep |
+
+## Caveats
+
+- **`who`/`refs` are a lower bound.** It resolves usages by type inference, so it misses sites where the receiver type is lost: lambda params inside `filtered()`/`mapped()`, field names inside XML `attrs=`/domain strings. Always cross-check with `grep -rn` before claiming "unused" or renaming.
+- Daemon: cold start indexes the whole tree (~10-20s), then queries are ~1s. Auto-starts on first query, exits after 3h idle. `restart` after big git operations (checkout/rebase) — the daemon only sees fresh content of files you query or `open`.
+- Binary resolution: `ODOO_LS_BIN` env > `~/.local/share/odoo-ls/current/` symlink > highest version there > Zed extension dir > PATH. `lsp.py bump <version>` installs a release from https://github.com/odoo/odoo-ls/releases and repoints `current` — use at least 1.5.1 (1.4.0's GoToReferences misses `with_company()` chains and XML field usages). Zed users: point `lsp.odoo.binary.path` in Zed settings at the `current` symlink so the editor and this CLI run the same server.
+- Server config = `odools.toml` at project root (shared with the editor). Logs: `~/.cache/odoo-ls-cli/`.
+
+## Database fields (`dbfields.py`)
+
+```bash
+python3 .claude/skills/find-code/dbfields.py product.template          # every field + fill rates
+python3 .claude/skills/find-code/dbfields.py product.template "mpn"    # matching fields + fill
+python3 .claude/skills/find-code/dbfields.py part_number               # no dot = which models carry it
+```
+
+Answers from `ir.model.fields` + `count(column)` on the model's table, per the
+DB in the project root's `odoo.conf` (here: the local restore of the prod
+dump). Owner = the module(s) claiming the field in `ir_model_data`; `NO MODULE`
+means Studio, manual, or data-created — invisible to every source-tree tool.
+Reach here whenever the question is about a field's EXISTENCE, OWNER or DATA,
+not its code: `lsp.py sym` indexes functions and classes only, so a field
+assignment can hide 14 existing columns from a source-side search.
+
+## Full model map (`inspect.py`)
+
+```bash
+python3 .claude/skills/find-code/inspect.py \
+  --model sale.order --context-module sale \
+  [--output-markdown .odoo_inspect/sale_order_structure.md]
+```
+
+Parses manifests for recursive `depends`, finds the base `_name` class and ALL `_inherit` extensions, extracts fields+methods per module. Present as:
+
+```
+Model: sale.order (38 fields total)
+
+Inheritance Chain:
+  sale (BASE) — 23 fields
+    └─> stock — +5 fields
+    └─> ${config.modulePrefix}_sale — +10 fields
+
+Fields by module:
+sale (base):
+- partner_id: Many2one
+...
+```
+
+## Use Cases
+
+- **Adding a field**: `inspect.py` → if the field exists anywhere in the chain, show where; if not, proceed
+- **Overriding a method**: `lsp def` on the super() call in a sibling override → see the full chain you are inserting into
+- **Debugging field errors**: `lsp hover` → owning module; check it is in `depends`
+- **Impact of changing a method/field**: `lsp refs` + grep cross-check
+''

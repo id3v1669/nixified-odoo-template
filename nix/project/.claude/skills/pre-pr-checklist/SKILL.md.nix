@@ -1,0 +1,141 @@
+{ config, lib }:
+let
+  orgMatch = builtins.match ".*[:/]([^/]+)/[{][}].*" config.customRepoPattern;
+  repoOrg = if orgMatch == null then "my-org" else builtins.head orgMatch;
+in ''
+---
+name: pre-pr-checklist
+description: "Pre-PR self-review checklist for ${config.projectName} Odoo modules. Walk through it BEFORE declaring a feature complete, before suggesting a `git commit`, or before saying 'done, ready to open the PR'. Catches manifest defaults, naming, tests, performance, architecture issues that reviewers routinely flag — saves a review round."
+---
+
+# Pre-PR self-review checklist
+
+Cheap pre-flight pass that catches most code-review noise. Run once per feature (re-running mid-implementation is wasted effort).
+
+## When to invoke (automatic)
+
+Run **before** any of:
+
+- you (or the user) say "done", "finished", "ready to open a PR", "ready for review"
+- you draft a commit message or invoke the `commit` skill
+- you push a branch to remote
+- the user asks you to summarise what's done in the feature
+
+## How to run
+
+Walk the checklist top-to-bottom, **only flagging items that apply** to the changed files. Per flag:
+
+1. **Fix now** if one-line — manifest default, redundant variable, missing test tag.
+2. **Surface to the user** if it needs a design call — model duplication, parameter source of truth, defensive `sudo()`.
+
+End with one line: `✓ N/N items pass · M flagged · K fixed inline · J need decision`. Don't dump the whole checklist back — only list flagged items.
+
+## Checklist
+
+### Manifest & module structure
+
+- [ ] Commit message contains the task key (${config.ticketPrefix}-xxx) in the body — see the `commit` skill
+- [ ] No `installable=True` / `application=False` / `auto_install=False` in `__manifest__.py` — these are framework defaults
+- [ ] `version` is bumped **only** if there's a connected changelog or release; otherwise leave alone
+- [ ] `depends` lists every module whose model/view/group/field you actually use (incl. `${config.modulePrefix}_base` if you use its shared overrides) — and nothing you don't
+- [ ] No leftover debug fields/methods/compute helpers from refactoring (e.g. `res_count` for visual debug)
+- [ ] New module → confirm its tests actually run in your test command (not silently skipped → false-green). Verify by running `--test-enable -u <module>` and seeing the test count
+
+### Models & ORM
+
+- [ ] No `_order = "id"` in model classes — that's the framework default
+- [ ] Every `sudo()` has a documented "why" — and you verified the user actually lacks the permission (not assumed)
+- [ ] `search_count(domain, limit=1)` whenever the result is used as a boolean (`if Model.search_count(...):`)
+- [ ] No `.search([...]).ids` immediately followed by `browse(ids)` — keep the recordset
+- [ ] No `search_read(...)` + manual `(id, name)` tuple normalisation — use `search()` and operate on records
+- [ ] `Command.set/link/clear/...` instead of `(6, 0, [...])` / `(4, id)` magic tuples
+- [ ] An override of a core field changes **behaviour only, never the computed schema** — no `required=`, `ondelete=`, `digits=` differing from the base declaration; move the invariant to a CHECK / `@api.ondelete` / create guard (`code-patterns` skill, references/migrations.md)
+- [ ] Overriding a core compute: `@api.depends` AND `@api.depends_context` copied from core and diffed (`code-patterns` skill, references/fields-computes.md)
+- [ ] **Every** compute carries an `@api.depends` — **non-stored included**. Without one nothing invalidates the field: it keeps its first value for the rest of the transaction, and on a form for the whole edit session, so an `attrs` / `parent.` domain / widget reading it goes stale with nothing raised and a green `create()`-shaped test. Deps you cannot express (a set read from another model) do not excuse the ones you can — a partial depends is the fix. Genuinely none (context, `env.user`, a config param) → explicit `@api.depends()` **plus a one-line why**; never on a stored field (`code-patterns` skill, references/fields-computes.md)
+- [ ] A field you touched that a VIEW reads (incl. `invisible="1"` feeding `parent.`): its declaration re-read, not just its compute body — the consumer usually arrives later than the field, and that is when the declaration stops matching its job
+- [ ] Removing a field that more than one module declares: xid ownership verified on every target DB — otherwise the column is dropped where the surviving declarer isn't installed
+- [ ] External params (cron args, `ir.config_parameter`, REST payloads) validated on type and boundaries at method entry; negative values rejected with `ValidationError`, not silently accepted
+- [ ] **Single source of truth per param** — no const + class-const + `ir.config_parameter` + cron arg for the same value. Aim for one (cron arg with default in signature is usually best)
+
+### Routes & controllers
+
+- [ ] `@route` for JSON: no explicit `methods=["POST"]` or `csrf=False` (these are defaults for JSON routes)
+- [ ] Module-level helpers used only inside a class → move to `@staticmethod` of that class (default), or document why module-level
+- [ ] No `sudo()` on `request.env[...]` unless documented
+
+### XML data files
+
+- [ ] Root tag is `<odoo noupdate="1">` (or `<odoo>` if data should re-load), **not** nested `<data noupdate="1">` inside bare `<odoo>`
+
+### Naming & numbers
+
+- [ ] No `cls` as a local variable (use `model_cls`, `klass`, or a domain-specific name)
+- [ ] No empty one-word names: `raw`, `tmp`, `data`, `bad`, `result` for non-obvious content
+- [ ] Variable names reflect both **content** and **type** (`non_stored_fields`, not `non_stored` — last word sounds boolean)
+- [ ] Magic numbers replaced with named module constants + one-line comment (`_PAYLOAD_SOFT_LIMIT = 32 * 1024  # 2^15`)
+- [ ] One-line locals inlined when used only once (`partner_id = partner.id` immediately before `("res_id", "=", partner_id)` → just use `partner.id`)
+- [ ] No em-dash `—` in code/strings/labels/decorations — ASCII `-` only (see `style` skill)
+
+### Comments
+
+- [ ] Comments explain **why**, not **what** — code with self-documenting names doesn't need narration
+- [ ] No multi-line comment blocks on standard code; if a comment is longer than 2 lines, consider splitting the method or adding it to the docstring
+- [ ] If a non-trivial decision is in the code, leave a one-line «why» — but make it scannable
+- [ ] **Every comment earns its place.** Read each one you added and ask: *is this the answer to a `purpose` question that was genuinely ambiguous or hard, and that explains why the code took an unusual route?* If yes, keep it — and cut it to the shortest form that still carries that answer. If no, delete it. Delete on sight:
+  - restatements of the next statement (`# Nothing left to buy` above `if need <= 0: continue`)
+  - narration of the code that follows (`# Then re-derive the purchases once` above the call that does it)
+  - ticket-key provenance (`(KIO-1234 item 3)`, `see KIO-1234`) — git blame and the PR carry it. Naming an **ADR** is fine: that is a document the reader can go read
+  - narration of ordinary framework mechanics (that a compute is a compute, that sudo is sudo, that a context flag is passed)
+  - anything already said in the method's docstring
+- [ ] Test when unsure: *delete the comment — would a competent developer then make a WRONG change?* Wrong change → keep it. Merely slower to follow → delete it
+
+### Tests
+
+- [ ] All test classes tagged `@tagged('post_install', '-at_install')`
+- [ ] Class name `Test<TestedClass>`, file matches class, methods `test_<method>_<case>`
+- [ ] No direct SQL for date/time changes — use `freeze_time` / `patch` (`self.env.cr.execute("UPDATE ... SET create_date = ...")` is a smell)
+- [ ] `assertRaises` with the **specific** exception class you raise (`ValidationError`, `UserError`, `IntegrityError`) — not bare `Exception`
+- [ ] Specialised asserts: `assertIsNone`, `assertIs`, `assertTrue`, `assertFalse` instead of `assertEqual(x, None)` / `assertEqual(x, True)`
+- [ ] No asserts on values you set in `setUp` (`assertEqual(len(self.partners), 2)` when `self.partners` was created with 2 records is noise)
+- [ ] Compare with `len(self.partners)`, `len(self.logs)`, etc. — not magic numbers (`5`, `11`) on the assertion RHS
+- [ ] Common fixtures in `tests/common.py` with a shared base class (`${config.projectName}Common(TransactionCase)`); HttpCase tests use their own base, don't duplicate `setUpClass` (see `testing` skill)
+- [ ] No `self.cr.savepoint()` inside `assertRaises` unless the failing call already emitted SQL (`testing` skill, references/gotchas.md)
+- [ ] `mute_logger("odoo.sql_db")` **only** when expecting a psycopg2-level error (IntegrityError, ProgrammingError); not for `ValidationError` from `@api.constrains` (`testing` skill, references/gotchas.md)
+- [ ] After refactoring — delete now-unused helper functions (`_setup_*_refs`)
+
+### Performance
+
+- [ ] No `ORDER BY id` in large chunked `DELETE ... WHERE ... LIMIT N` (sorting 100k+ rows is wasted when next tick cleans the next chunk; `code-patterns` skill, references/background-jobs.md)
+- [ ] Long `if`-chains or repeated `if cond: action(label)` / early-return chains that vary only in `(condition, label)` or `(key, value)` → dict + loop / `.get()`. Threshold ~4+ branches with uniform action shape (see `style` skill "Many-branch validation / dispatch")
+- [ ] No `noqa: PLR0911 / PLR0912 / etc.` to suppress complexity warnings — that's a signal to refactor, not a fix
+
+### Architecture
+
+- [ ] DRY check: grep for similar patterns in neighbouring `${config.modulePrefix}_*` modules before adding a new helper — likely already exists
+- [ ] Constants used in 2+ files → `constants.py` at module root; constants used in one file stay co-located
+- [ ] Don't clone framework constants (`_GC_LIMIT = 100_000` is already `odoo.models.GC_UNLINK_LIMIT`) — import
+- [ ] Tracking / logging / event models — design with extensibility in mind: **one model with a discriminator field** (`tracking_type`, `event_kind`), not N parallel models per type. Future "third kind" should mean a row, not a migration
+- [ ] Don't edit OCA/core under `src/` — extend via a `${config.modulePrefix}_*` module (enforced by the guard-readonly hook)
+
+## Output format
+
+Report like this:
+
+```
+Pre-PR check (${config.modulePrefix}_field_tracker, 14 files):
+  ✓ 47/56 items pass
+  ⚠ 9 flagged — 6 fixed inline, 3 need decision:
+     - manifest defaults specified → removed
+     - tag 'post_install' missing on 4 test classes → added
+     - 4-way retention parameter — needs design call
+     - second tracking model duplicates first — design call
+     - ORDER BY id in chunked DELETE — design call (drop?)
+```
+
+If everything passes: `Pre-PR check: ✓ 56/56 items pass.`
+
+## Related
+
+- Why a rule exists: [style](../style/SKILL.md), [testing](../testing/SKILL.md), [code-patterns](../code-patterns/SKILL.md) skills.
+- Full rationale for cited items: `testing` skill references/gotchas.md, `code-patterns` skill references/.
+''

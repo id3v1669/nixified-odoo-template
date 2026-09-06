@@ -40,6 +40,27 @@
           } ''
             printf '%s\n' "$configurations" > "$out"
           '';
+          projectTrees = pkgs.linkFarm "nixodoo-project-trees" (map (config: {
+            name = config.projectName;
+            path = import ./nix/lib/project-tree.nix {
+              inherit pkgs config;
+              frameworkRoot = self;
+              provenance = { kind = "local"; narHash = self.narHash; };
+            };
+          }) configs);
+          projectHelpers =
+            let candidate = import ./nix/lib/project-tree.nix {
+              inherit pkgs;
+              config = normalizeConfig (import ./tests/fixtures/configs/full-16.nix);
+              frameworkRoot = self;
+              provenance = { kind = "local"; narHash = self.narHash; };
+            }; in pkgs.runCommand "nixodoo-project-helpers" { } ''
+              find ${candidate}/tree/.claude -name '*.sh' -print0 | \
+                xargs -0 ${pkgs.shellcheck}/bin/shellcheck --severity=warning -e SC1090,SC1091
+              PYTHONPYCACHEPREFIX="$TMPDIR/pycache" ${pkgs.python3}/bin/python -m compileall -q ${candidate}/tree/.claude
+              ${pkgs.python3}/bin/python ${./tests/test_nudge_find_code.py} ${candidate}/tree/.claude/hooks/nudge-find-code.py
+              touch "$out"
+            '';
           formats = pkgs.linkFarm "nixodoo-formats" (nixpkgs.lib.concatMap (config:
             nixpkgs.lib.mapAttrsToList (name: path: {
               name = "${config.projectName}/${name}";

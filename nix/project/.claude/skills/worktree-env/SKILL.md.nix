@@ -1,0 +1,108 @@
+{ config, lib }:
+let
+  orgMatch = builtins.match ".*[:/]([^/]+)/[{][}].*" config.customRepoPattern;
+  repoOrg = if orgMatch == null then "my-org" else builtins.head orgMatch;
+in ''
+---
+name: worktree-env
+description: "Spin up / list / tear down isolated per-session Odoo ${config.odooVersion} dev environments, each backed by a git worktree of the addons repo with its own port, database (own restore of the prod dump), data_dir and systemd service — so many tasks run in parallel without touching each other or the main develop env. Used by the pipeline skill and standalone. Use when asked to start/stop an isolated env, work on a task in parallel, or run something against a throwaway Odoo."
+argument-hint: "[start|stop|list] [slug]"
+---
+
+# Worktree Dev Environments
+
+Per-session isolated Odoo envs. Each run is keyed by a task `<slug>` and gets its
+own worktree + port + DB + data_dir + systemd unit. Many can run in parallel; none
+touch the user's main env (`src/${config.customRepoName}` / `${config.dbName}` / `odoo${config.serviceSuffix}.service` / 1669).
+
+| | Main (user's) | Session `<slug>` |
+|---|---|---|
+| Code | `src/${config.customRepoName}` | `.worktrees/<slug>` (branch off `origin/${config.odooVersion}`) |
+| Runtime | `odoo.conf` | `.worktrees/_env/<slug>/{odoo.conf,data,port}` |
+| Service | `odoo${config.serviceSuffix}.service` | `odoo${config.serviceSuffix}-wt@<slug>.service` |
+| DB | `${config.dbName}` | `wt_<slug>` (own restore of the prod dump) |
+| HTTP | nginx ${toString config.ports.nginx} → ${toString config.ports.http} | auto-allocated in **${toString ((config.derived.odooMajor + 11) * 100)}–${toString ((config.derived.odooMajor + 11) * 100 + 99)}** (direct, no nginx) |
+
+## Commands
+
+Invoke by absolute path under `$${config.projectDirVar}/.claude/skills/worktree-env/scripts/`:
+
+- **`wt-start.sh <slug>`** — bring the env up: add the worktree off `origin/${config.odooVersion}` as
+  branch `<slug>`, allocate a free port, build the session addons farm, restore
+  `wt_<slug>` from the prod seed dump (+ `odoo neutralize` + dev fixups), start
+  `odoo${config.serviceSuffix}-wt@<slug>.service`.
+  **Idempotent — re-run to refresh** (e.g. after adding a new module dir). Prints
+  `WORKTREE:` / `BRANCH:` / `URL:` / `CONF:` / `DB:` / `PORT:` — capture these.
+- **`wt-stop.sh <slug>`** — stop the env's Odoo; if the worktree is clean, remove it,
+  drop `wt_<slug>`, delete the runtime dir (the branch stays on origin). A **dirty**
+  worktree is kept (worktree + env + DB) and reported so no work is lost.
+- **`wt-list.sh`** — table of all active envs (slug / port / DB / service / dirty).
+- `wt-bootstrap.sh` — one-time, light: installs the `odoo${config.serviceSuffix}-wt@.service` template unit
+  and checks the seed dump is present. **No DB work; never stops `odoo${config.serviceSuffix}.service`.**
+  `wt-start.sh` calls it automatically.
+- `wt-link.sh <tree> <farm>` / `wt-restore.sh <slug>` — internals used by `wt-start`.
+
+**Slug** = kebab branch name, conventionally `<kio-key-lower>-<short-desc>`
+(e.g. `kio-1234-cash-in-cogs`). It is the git branch, the systemd instance, and (with
+`-`→`_`, prefixed `wt_`) the DB name.
+
+Standalone: "spin up an env for ${config.ticketPrefix}-1234" → `wt-start.sh kio-1234-<desc>`, hand back
+the `URL`. "what envs are running" → `wt-list.sh`. "tear down kio-1234" →
+`wt-stop.sh kio-1234-<desc>`.
+
+## Prerequisite — the seed dump
+
+Each session restores `backup/*.dump` (a raw prod dump) into its own DB.
+${if (config.backupS3Bucket != "") then ''
+Fetch / refresh it with **`nix run .#download-backup`** — that app `aws s3 cp`s the
+latest prod dump into `backup/`. With the shared cluster already running it restores
+in place (no `pg_ctl`) and only drops/recreates its **target** DB (default `${config.dbName}`),
+so active sessions are unaffected. If `wt-start` reports no dump, ask the user to
+run it once first.
+'' else ''
+Place a prod dump into `backup/` manually (any `*.dump` produced by `pg_dump -Fc`);
+the newest file is used. If `wt-start` reports no dump, ask the user to drop one in.
+''}
+
+## How it works / gotchas
+
+- **Why a per-session data_dir, not just `addons_path`:** Odoo's `initialize_sys_path`
+  appends `data_dir/addons/${config.odooVersion}` **before** `addons_path`, and `get_module_path`
+  takes the first hit — so the main symlink farm would always shadow a worktree on
+  `addons_path`. Each session therefore has its own data_dir whose farm IS the
+  source of truth: custom modules → the worktree, OCA/CE → the shared pinned `src/`.
+- **Why sessions restore the dump themselves:** the seed flow targets a single
+  DB; `wt-restore.sh` restores the already-fetched dump straight into the per-slug
+  `wt_<slug>` DB and neutralizes it, so parallel sessions stay independent.
+- **The dump is raw prod** → `wt-restore.sh` runs Odoo's native neutralization
+  (`odoo neutralize` — every installed module's `data/neutralize.sql`: outgoing mail
+  blocked by a dummy SMTP server, fetchmail off, crons off except autovacuum,
+  payment/IAP disabled, `database.is_neutralized` flag +
+  visible banner), then the shared `nix/scripts/dev-fixup.sql` (admin → `admin`/`admin`,
+  requeue stuck queue jobs, bump the document sequences past the names the dump
+  already carries — imported picking/MO names sit above the sequence, so the Nth
+  create would collide on `stock_picking_name_uniq`)${lib.optionalString (config.backupS3Bucket != "") '' — same pair `nix run .#download-backup` uses''}.
+- **Concurrency:** port allocation + `git worktree add` run under `flock`
+  (`.worktrees/.wt.lock`); the slow `pg_restore` runs outside the lock so parallel
+  starts overlap. DBs/ports/worktrees are per-slug, so sessions never collide.
+- **Runtime:** sessions run `workers = 0`, `max_cron_threads = 0` (light, no
+  nginx/websocket juggling). The `queue_job` runner still starts in threaded mode
+  against the session DB — jobs process normally and isolated.
+- **Pointing the odoo MCP at a session:** `connect` to it explicitly —
+  `connect(host="localhost", port=<PORT>, database=<DB>, username="admin", password="admin")`.
+  The `default`/`prod` env profiles map to `${config.dbName}`/prod (not a session), so pass
+  explicit host/port/db rather than a profile. The connection is global per MCP
+  server, so when alternating with prod ticket ops reconnect deliberately and check
+  `get_connection_status`. (Each Claude session has its own MCP server, so per-session
+  connections don't fight.)
+- Cosmetic: every session shows Odoo's native neutralization banner (same on all) —
+  tell sessions apart by the port in `<URL>`.
+- Disk: each session DB is a full restore (a few GB) + ~75 MB filestore copy. Plenty
+  of headroom, but 5 parallel ≈ a handful of restores running at once.
+
+## Files
+
+`.worktrees/<slug>/` (worktree) and `.worktrees/_env/<slug>/` (conf, data_dir, port)
+are gitignored in the parent repo. The branch lives in the nested addons repo
+(`src/${config.customRepoName}`, remote `${config.modulePrefix}-dev/${config.customRepoName}`).
+''
