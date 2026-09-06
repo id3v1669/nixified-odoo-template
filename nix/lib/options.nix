@@ -23,7 +23,7 @@ let
       name = mkOption { type = repoName; };
       url = mkOption { type = types.nonEmptyStr; };
       branch = string config.odooVersion "Git branch to check out.";
-      modules = option (types.listOf types.nonEmptyStr) [ "*" ] "Addon modules to link.";
+      modules = option (types.listOf (types.strMatching "(\\*|[a-zA-Z_][a-zA-Z0-9_]*)")) [ "*" ] "Addon modules to link.";
       inherit revision;
     };
   };
@@ -131,6 +131,21 @@ in
       withSsh = config.prodSshHost != "";
     };
     assertions = [
+      {
+        assertion = lib.length (lib.unique (map (repo: repo.path) config.repositories.base))
+          == lib.length config.repositories.base;
+        message = "repositories.base must have unique paths.";
+      }
+      {
+        assertion = builtins.all (repo: repo.name != "ENV") config.repositories.addons;
+        message = "repositories.addons cannot use the reserved name ENV.";
+      }
+      {
+        assertion = builtins.all (repo:
+          !(builtins.elem "src/${repo.name}" (map (base: base.path) config.repositories.base))
+        ) config.repositories.addons;
+        message = "repositories.base and repositories.addons cannot share a checkout path.";
+      }
       {
         assertion = !config.useClaudeCode || builtins.match "[a-z][a-z0-9_]+" config.modulePrefix != null;
         message = "modulePrefix must be lowercase snake_case when useClaudeCode is enabled.";

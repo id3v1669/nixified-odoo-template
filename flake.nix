@@ -40,6 +40,12 @@
           } ''
             printf '%s\n' "$configurations" > "$out"
           '';
+          formats = pkgs.linkFarm "nixodoo-formats" (nixpkgs.lib.concatMap (config:
+            nixpkgs.lib.mapAttrsToList (name: path: {
+              name = "${config.projectName}/${name}";
+              inherit path;
+            }) (import ./nix/lib/formats.nix { inherit pkgs config; })
+          ) configs);
           shellcheck = (self.lib.mkOdooProject {
             projectRoot = self;
             config = { projectName = "ci-scripts"; };
@@ -60,7 +66,9 @@
       devShells = forSystems (system:
         let pkgs = import nixpkgs { inherit system; }; in {
           default = pkgs.mkShell {
-            packages = [ pkgs.nix pkgs.python3 pkgs.uv pkgs.shellcheck pkgs.nixfmt-rfc-style ];
+            packages = [ pkgs.nix
+              (pkgs.python3.withPackages (python: [ python.tomlkit python.pyyaml python.packaging ]))
+              pkgs.uv pkgs.shellcheck pkgs.nixfmt-rfc-style ];
           };
         });
     };

@@ -95,6 +95,16 @@ class ConfigTests(unittest.TestCase):
         cfg = self.evaluate({"projectName": "acme", "useQueueJob": True, "repositories": {"addons": []}})
         self.assertEqual(cfg["repositories"]["addons"], [])
 
+    def test_repository_collisions_and_unsafe_modules_are_rejected(self):
+        for repositories in [
+            {"base": [{"path": "src/odoo", "url": "one"}, {"path": "src/odoo", "url": "two"}]},
+            {"addons": [{"name": "ENV", "url": "one"}]},
+            {"addons": [{"name": "odoo", "url": "one"}]},
+            {"addons": [{"name": "custom", "url": "one", "modules": ["../../outside"]}]},
+        ]:
+            with self.subTest(repositories=repositories):
+                self.reject({"projectName": "acme", "repositories": repositories}, "repositories")
+
     def test_remote_paths_derive_from_project(self):
         cfg = self.evaluate({"projectName": "acme", "prodSshHost": "192.0.2.1", "prodRemoteProjectDir": "/srv/acme"})
         self.assertEqual(cfg["prodRemoteOdooConf"], "/srv/acme/odoo.conf")
