@@ -1,0 +1,1 @@
+{ projectName = "acme"; serviceSuffix = "-acme"; }
