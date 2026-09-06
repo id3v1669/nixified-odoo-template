@@ -1,0 +1,77 @@
+# shellcheck shell=bash
+# Generate odoo.conf from .env values (no-op if odoo.conf already exists).
+set -e
+umask 077
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+fi
+
+mkdir -p .local/share/Odoo
+DATA_DIR="$(realpath ".local/share/Odoo")"
+CONF_PATH="odoo.conf"
+
+mkdir -p "$DATA_DIR" ".local/share/Odoo/addons/$ODOO_VERSION"
+
+if [ -f "$CONF_PATH" ]; then
+    echo "odoo.conf already exists at $CONF_PATH"
+    exit 0
+fi
+
+DB_HOST="${PGHOST:-localhost}"
+DB_NAME="${PGDATABASE}"
+DB_PASSWORD="${PGPASSWORD}"
+DB_PORT="${PGPORT}"
+DB_USER="${PGUSER}"
+HTTP_PORT="${ODOO_HTTP_PORT}"
+LP_PORT="${ODOO_GEVENT_PORT}"
+REPORT_URL="http://127.0.0.1:$HTTP_PORT"
+ADMIN_PASSWD="$(head -c 24 /dev/urandom | base64 | tr -d '+/=')"
+
+if [ "$ODOO_MAJOR" -ge 17 ]; then
+    GEVENT_LINE="gevent_port = $LP_PORT"
+else
+    GEVENT_LINE="longpolling_port = $LP_PORT"
+fi
+
+if [ -n "$USE_QUEUE_JOB" ]; then
+    QUEUE_JOB_MODULE=",queue_job"
+    QUEUE_JOB_SECTION='
+
+[queue_job]
+channels = root:3'
+else
+    QUEUE_JOB_MODULE=""
+    QUEUE_JOB_SECTION=""
+fi
+
+cat > "$CONF_PATH" << ODOO_EOF
+[options]
+admin_passwd = $ADMIN_PASSWD
+data_dir = $DATA_DIR
+logfile = ${!PROJECT_DIR_VAR}/odoo.log
+db_host = $DB_HOST
+db_name = $DB_NAME
+db_password = $DB_PASSWORD
+db_port = $DB_PORT
+db_user = $DB_USER
+dbfilter = .*
+http_port = $HTTP_PORT
+limit_memory_soft = 4294967296
+limit_memory_hard = 5368709120
+limit_request = 10000
+limit_time_cpu = 1200
+limit_time_real = 2400
+limit_time_real_cron = -1
+$GEVENT_LINE
+max_cron_threads = 1
+proxy_mode = True
+report_url = $REPORT_URL
+server_wide_modules = base,web$QUEUE_JOB_MODULE
+workers = 4$QUEUE_JOB_SECTION
+ODOO_EOF
+
+echo "odoo.conf generated successfully at $CONF_PATH"
+echo "(admin_passwd was set to a random value; see $CONF_PATH)"
