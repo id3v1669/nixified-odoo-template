@@ -2,7 +2,7 @@
   description = "Nix generator for Odoo development environments";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     pyproject-nix.url = "github:pyproject-nix/pyproject.nix";
     uv2nix.url = "github:pyproject-nix/uv2nix";
     pyproject-build-systems.url = "github:pyproject-nix/build-system-pkgs";
@@ -58,7 +58,7 @@
           projectHelpers =
             let candidate = import ./nix/lib/project-tree.nix {
               inherit pkgs;
-              config = normalizeConfig (import ./tests/fixtures/configs/full-16.nix);
+              config = normalizeConfig (import ./tests/fixtures/configs/full-17.nix);
               frameworkRoot = self;
               provenance = { kind = "local"; narHash = self.narHash; };
             }; in pkgs.runCommand "nixodoo-project-helpers" { } ''
@@ -82,7 +82,7 @@
           bootstrap =
             let project = self.lib.mkOdooProject {
               projectRoot = self;
-              config = import ./tests/fixtures/configs/full-16.nix;
+              config = import ./tests/fixtures/configs/full-17.nix;
               inherit system;
             }; in pkgs.linkFarm "nixodoo-bootstrap" (map (name: {
               inherit name;

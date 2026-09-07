@@ -32,7 +32,7 @@ class ProjectTreeTests(unittest.TestCase):
                 self.assertNotIn(".env", manifest["files"])
 
     def test_optional_helpers_and_seeds(self):
-        full = build_fixture("tree-fixture.nix", fixtureName="full-16")
+        full = build_fixture("tree-fixture.nix", fixtureName="full-17")
         manifest = json.loads((full / "manifest.json").read_text())["files"]
         for path in (".claude/skills/deploy/SKILL.md", ".claude/skills/deploy-checks/SKILL.md",
                      ".claude/skills/pipeline/SKILL.md", ".claude/skills/teams-message/SKILL.md"):

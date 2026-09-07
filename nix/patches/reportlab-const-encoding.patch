@@ -1,5 +1,0 @@
---- a/src/rl_addons/rl_accel/_rl_accel.c
-+++ b/src/rl_addons/rl_accel/_rl_accel.c
-@@ -625 +625 @@
--	char		*encStr;
-+	const char	*encStr;

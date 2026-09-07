@@ -13,8 +13,7 @@ ENV_DIR="$WT_ENVROOT/$SLUG"
 DATA_DIR="$ENV_DIR/data"
 CONF="$ENV_DIR/odoo.conf"
 mkdir -p "$ENV_DIR" "$DATA_DIR/sessions" "$DATA_DIR/filestore"
-GEVENT_OPTION=longpolling_port
-if [ "$ODOO_MAJOR" -ge 17 ]; then GEVENT_OPTION=gevent_port; fi
+GEVENT_OPTION=gevent_port
 SERVER_MODULES=base,web
 if [ -n "$USE_QUEUE_JOB" ]; then SERVER_MODULES+=,queue_job; fi
 cat > "$CONF" <<EOF

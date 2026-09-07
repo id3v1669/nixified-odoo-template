@@ -29,11 +29,17 @@ class ConfigTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(option, result.stderr)
 
-    def test_odoo16_defaults(self):
-        cfg = self.evaluate({"projectName": "acme", "odooVersion": "16.0"})
-        self.assertEqual(cfg["python"], "3.10")
+    def test_retired_runtime_choices_are_rejected(self):
+        for overrides, option in [({'odooVersion': '16.0'}, 'odooVersion'),
+                                  ({'python': '3.10'}, 'python'), ({'postgres': 13}, 'postgres')]:
+            with self.subTest(overrides=overrides):
+                self.reject({'projectName': 'acme', **overrides}, option)
+
+    def test_odoo17_defaults(self):
+        cfg = self.evaluate({"projectName": "acme", "odooVersion": "17.0"})
+        self.assertEqual(cfg["python"], "3.11")
         self.assertEqual(cfg["postgres"], 15)
-        self.assertEqual(cfg["ports"], {"http": 1669, "gevent": 1672, "nginx": 16069, "pg": 16432})
+        self.assertEqual(cfg["ports"], {"http": 1769, "gevent": 1772, "nginx": 17069, "pg": 17432})
 
     def test_odoo19_defaults(self):
         cfg = self.evaluate({"projectName": "acme"})

@@ -20,7 +20,7 @@ area:
   lost on override, `search=` vs stored, `active_test` on o2m, m2m `domain=`
   is UI-only, `check_company` inertness, two-module field removal, `ormcache`,
   multi-company scoping per field kind: [references/fields-computes.md](references/fields-computes.md)
-- **Views** — validator traps (${lib.optionalString (config.odooVersion == "16.0") ''`attrs` vs 17+ expressions, ''}xpath selectors,
+- **Views** — validator traps (xpath selectors,
   domain group restriction), dev-only menus, pivot `search_default` override,
   m2m picker: [references/views.md](references/views.md)
 - **Background jobs** — `ir.cron.trigger` action-triggered chunked work,

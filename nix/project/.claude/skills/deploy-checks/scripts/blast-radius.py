@@ -101,7 +101,7 @@ def changed_lines(repo, range_, path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", help="addons git repo (enables content scan)")
-    ap.add_argument("--range", dest="range_", help="git range, e.g. origin/16.0..HEAD")
+    ap.add_argument("--range", dest="range_", help="git range, e.g. origin/17.0..HEAD")
     ap.add_argument("--files-from", help="file with changed paths, '-' for stdin")
     args = ap.parse_args()
 

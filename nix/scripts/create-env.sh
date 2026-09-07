@@ -29,12 +29,7 @@ if [ ! -f .env ]; then
     read -r -p "Odoo http port (default: $ODOO_HTTP_PORT): " http_port
     http_port=${http_port:-$ODOO_HTTP_PORT}
 
-    if [ "$ODOO_MAJOR" -ge 17 ]; then
-        gevent_label="gevent"
-    else
-        gevent_label="longpolling"
-    fi
-    read -r -p "Odoo $gevent_label port (default: $ODOO_GEVENT_PORT): " gevent_port
+    read -r -p "Odoo gevent port (default: $ODOO_GEVENT_PORT): " gevent_port
     gevent_port=${gevent_port:-$ODOO_GEVENT_PORT}
 
     read -r -p "Nginx port (default: $NGINX_PORT): " nginx_port

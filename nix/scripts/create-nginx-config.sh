@@ -23,16 +23,6 @@ HTTP_PORT="${ODOO_HTTP_PORT}"
 LP_PORT="${ODOO_GEVENT_PORT}"
 NGX_PORT="${ODOO_NGINX_PORT}"
 
-if [ "$ODOO_MAJOR" -lt 17 ]; then
-    LONGPOLLING_LOCATION='
-        location /longpolling {
-            proxy_pass http://odoo-gevent;
-        }
-'
-else
-    LONGPOLLING_LOCATION=''
-fi
-
 cat > "$CONF_PATH" << NGINX_EOF
 error_log logs/error.log;
 pid logs/nginx.pid;
@@ -98,7 +88,7 @@ http {
             proxy_read_timeout 30000;
             proxy_redirect off;
         }
-$LONGPOLLING_LOCATION    }
+    }
 }
 NGINX_EOF
 

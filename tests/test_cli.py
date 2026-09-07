@@ -65,6 +65,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertEqual((self.project / 'config.nix').read_bytes(), before)
 
+    def test_odoo16_initialization_is_rejected(self):
+        result = self.run_cli('init', self.project, '--project-name', 'retired', '--odoo', '16.0')
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse(self.project.exists())
+
     def test_no_git_flag_is_rejected(self):
         result = self.run_cli('init', self.project, '--config', self.config, '--no-git')
         self.assertEqual(result.returncode, 2, result.stderr)

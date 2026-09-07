@@ -30,11 +30,7 @@ LP_PORT="${ODOO_GEVENT_PORT}"
 REPORT_URL="http://127.0.0.1:$HTTP_PORT"
 ADMIN_PASSWD="$(head -c 24 /dev/urandom | base64 | tr -d '+/=')"
 
-if [ "$ODOO_MAJOR" -ge 17 ]; then
-    GEVENT_LINE="gevent_port = $LP_PORT"
-else
-    GEVENT_LINE="longpolling_port = $LP_PORT"
-fi
+GEVENT_LINE="gevent_port = $LP_PORT"
 
 if [ -n "$USE_QUEUE_JOB" ]; then
     QUEUE_JOB_MODULE=",queue_job"

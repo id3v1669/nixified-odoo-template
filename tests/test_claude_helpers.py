@@ -18,7 +18,7 @@ from support import build_fixture
 class ClaudeHelperTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.candidate = build_fixture("tree-fixture.nix", fixtureName="full-16")
+        cls.candidate = build_fixture("tree-fixture.nix", fixtureName="full-17")
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="claude helper ")
@@ -36,7 +36,7 @@ class ClaudeHelperTests(unittest.TestCase):
     def run_helper(self, name, *args, stdin=""):
         return subprocess.run([str(self.project / ".claude" / name), *args],
                               cwd=self.project, input=stdin, capture_output=True, text=True,
-                              env={key: value for key, value in os.environ.items() if key != "ODOO16_PROJECT_DIR"})
+                              env={key: value for key, value in os.environ.items() if key != "ODOO17_PROJECT_DIR"})
 
     def test_readonly_hook_allows_custom_modules_and_blocks_core(self):
         for path, expected in (("src/acme-addons/acme_sale/models.py", 0),
@@ -54,7 +54,7 @@ class ClaudeHelperTests(unittest.TestCase):
         oca = self.project / "src/queue/queue_job"
         worktree = self.project / ".worktrees/task"
         module = worktree / "acme_sale"
-        farm = self.project / ".local/share/Odoo/addons/16.0"
+        farm = self.project / ".local/share/Odoo/addons/17.0"
         for directory in (main_custom, oca, module, farm):
             directory.mkdir(parents=True)
         (module / "__manifest__.py").write_text("{}\n")
@@ -77,7 +77,7 @@ class ClaudeHelperTests(unittest.TestCase):
         self.assertEqual(parser["options"]["db_user"], "custom_role")
         self.assertEqual(parser["options"]["db_port"], "25432")
         self.assertEqual(parser["options"]["db_name"], "wt_task_one")
-        self.assertEqual(parser["options"]["longpolling_port"], "3769")
+        self.assertEqual(parser["options"]["gevent_port"], "3769")
         self.assertEqual(parser["options"]["server_wide_modules"], "base,web,queue_job")
         self.assertEqual(conf.stat().st_mode & 0o777, 0o600)
 

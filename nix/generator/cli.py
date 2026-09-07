@@ -434,7 +434,7 @@ def parser():
     init.add_argument('destination', type=Path)
     init.add_argument('--config', type=Path)
     init.add_argument('--project-name')
-    init.add_argument('--odoo', choices=['16.0', '17.0', '18.0', '19.0'])
+    init.add_argument('--odoo', choices=['17.0', '18.0', '19.0'])
     for name in ('update', 'refresh-config', 'refresh-deps'):
         command = commands.add_parser(name)
         command.add_argument('--check', action='store_true')

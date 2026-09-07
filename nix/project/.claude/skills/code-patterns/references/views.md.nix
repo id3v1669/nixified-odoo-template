@@ -9,47 +9,18 @@ Facts verified on Odoo 16 source; re-verify on later majors where marked.
 
 ## Contents
 
-${if (config.odooVersion == "16.0") then ''
-- Odoo 16 has no expression-valued `invisible`/`readonly`/`required`
-'' else ''
 - Odoo ${toString config.derived.odooMajor} uses expression attributes, `attrs` is gone
-''}
 - View inheritance selectors: never xpath on `string`
 - A field's `domain` can't reference a stricter-`groups` field
 - `base.menu_custom` is developer-mode-only
 - Action `search_default_group_*` overrides the pivot arch's row axis
 - Hiding "New" in the m2m picker dialog
 
-${if (config.odooVersion == "16.0") then ''
-## Odoo 16 has no expression-valued `invisible`/`readonly`/`required`
-
-`invisible="not method_name"` / `readonly="state == 'done'"` is **Odoo 17+**
-view syntax. On 16 those attributes accept only `"1"`/`"0"`; conditions go
-through `attrs` with a domain:
-
-```xml
-<!-- 17+ (fails to LOAD on 16) -->
-<field name="method_name" invisible="not method_name"/>
-<!-- 16 -->
-<field name="method_name" attrs="{'invisible': [('method_name', '=', False)]}"/>
-```
-
-The symptom is misleading: a `ParseError: while parsing <file> ... somewhere
-inside <record>` ending in `AttributeError: 'ValueError' object has no
-attribute 'context'` — nothing names the attribute. Recognise it by an
-`invisible=`/`readonly=`/`required=` with a non-`1`/`0` value in the quoted
-record. Find them all:
-
-```bash
-grep -rPn '\b(invisible|readonly|required|column_invisible)="(?!1")(?!0")[^"]' --include='*.xml' .
-```
-'' else ''
 ## Odoo ${toString config.derived.odooMajor} uses expression attributes, `attrs` is gone
 
 `attrs`/`states` were removed in 17.0 — conditions live directly in the
 attribute (`invisible="not method_name"`, `readonly="state == 'done'"`). Code
 ported from ≤16 that still carries `attrs=` fails view validation.
-''}
 
 ## View inheritance selectors: never xpath on `string`
 

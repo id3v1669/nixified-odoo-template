@@ -15,7 +15,7 @@ Module prefix: `${config.modulePrefix}`. Ticket prefix: `${config.ticketPrefix}`
 
 - **Python**: ${config.python} (managed by Nix, no virtualenv/pip — use `uv` for dependency management)
 - **Database**: PostgreSQL ${toString config.postgres} — `${config.dbName}` on `localhost:${toString config.ports.pg}`, user/pass `${config.dbUser}/${"<runtime password from .env or dbPasswordFile>"}`
-- **Odoo HTTP**: `localhost:${toString config.ports.http}`, ${if (config.derived.odooMajor >= 17) then ''gevent'' else ''longpolling''} `localhost:${toString config.ports.gevent}`, nginx proxy `localhost:${toString config.ports.nginx}`
+- **Odoo HTTP**: `localhost:${toString config.ports.http}`, gevent `localhost:${toString config.ports.gevent}`, nginx proxy `localhost:${toString config.ports.nginx}`
 - **Odoo credentials**: `admin` / `admin`
 - **Config**: `odoo.conf` (generated) | **Logs**: `odoo.log` (rotated daily)
 

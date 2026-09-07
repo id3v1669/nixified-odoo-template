@@ -2,6 +2,8 @@
 
 The project configuration is in `config.nix`. The `nix/` directory contains
 the vendored generator and build definitions. Source checkouts live in `src/`.
+The generator uses nixpkgs 26.05 and supports Odoo 17–19, Python 3.11–3.14,
+and PostgreSQL 14–17.
 
 Initialization creates a Git repository and stages the generated files without
 committing them. Keep runtime files such as `.env` untracked: Nix uses Git's
@@ -64,6 +66,11 @@ Keep credentials in ignored local files. An existing `.env` remains unchanged.
 When creating it, a password entered at the prompt overrides `dbPasswordFile`;
 without either, the development default is `odoo`. Configuration stores only
 credential paths because Nix copies `config.nix` into its store.
+
+Odoo 16, Python 3.10, and PostgreSQL 13 are no longer supported. Projects
+using those versions need a separate application, interpreter, or database migration before
+updating their generator; changing the version in configuration alone does not
+migrate a database.
 
 Legacy migration uses the framework's `migrate` command from outside the old
 project. It requires a Git repository, imports known settings, and backs up

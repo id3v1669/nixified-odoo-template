@@ -5,9 +5,10 @@ project files, defaults, packages, and Linux service scripts. A small Python CLI
 handles Git initialization, dependency locks, migration, and filesystem updates.
 The generator does not use Jinja, Copier, flake-utils, or flake-parts.
 
-Projects support Odoo 16 through 19, Python 3.10 through 3.14, and PostgreSQL
-13 through 17. Version combinations still depend on upstream Python packages;
-the runtime checks cover Odoo 16/Python 3.10 and Odoo 19/Python 3.14.
+Projects use nixpkgs 26.05 and support Odoo 17 through 19, Python 3.11 through
+3.14, and PostgreSQL 14 through 17. Version combinations still depend on
+upstream Python packages. Runtime checks cover Odoo 17/Python 3.11,
+Odoo 18/Python 3.12, and Odoo 19/Python 3.14.
 
 ## Create a project
 
@@ -124,6 +125,13 @@ ignored by Git and excluded from generated manifests.
 
 ## Migrate an existing project
 
+This release drops Odoo 16, Python 3.10, and PostgreSQL 13. Existing projects
+selecting those versions are rejected before generator updates or migration
+write files. Keep them on an earlier generator revision until their application,
+interpreter, or database migration is complete. Changing `odooVersion` alone
+does not migrate an Odoo database. Supported defaults remain Python 3.11 and
+PostgreSQL 15 for Odoo 17, and Python 3.12 and PostgreSQL 17 for Odoo 18/19.
+
 Keep a local backup and inspect the project's Git status first. The migration
 requires a Git repository rooted at the project directory. Untrack any runtime
 files before migration. Run the new generator from this framework checkout,
@@ -170,7 +178,7 @@ nix flake check -L
 ```
 
 Checks generate all nine configuration fixtures, validate structured files and
-helper scripts, and build the two locked Odoo environments. Runtime checks
+helper scripts, and build the three locked Odoo environments. Runtime checks
 initialize `base` in disposable PostgreSQL clusters using separate Unix sockets,
 then restore local dumps. They do not connect to existing databases or services.
 The flake declares x86_64-linux and aarch64-linux outputs; evaluating an output

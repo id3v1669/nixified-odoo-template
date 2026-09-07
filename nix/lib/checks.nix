@@ -37,11 +37,17 @@ in {
     ${pkgs.shellcheck}/bin/shellcheck ${../../tests/runtime-smoke.sh}
     touch "$out"
   '';
-  odoo16 = smoke {
-    major = "16";
-    python = "3.10";
-    revision = "6a571a38b2a99175fa08dcb82f9405256a992a6c";
-    hash = "sha256-7BJMTxOCiRQ5I1X852r9w/g9OIx5mhsm9zzdds57CxY=";
+  odoo17 = smoke {
+    major = "17";
+    python = "3.11";
+    revision = "fc082fbfa4c70cf1bf5127cb207a9656218914f2";
+    hash = "sha256-NBvje29SlEk4jkejE4gZOjoTZrcLg2OYFnCqDIJ4JK8=";
+  };
+  odoo18 = smoke {
+    major = "18";
+    python = "3.12";
+    revision = "ec79381d98fd49fe8aeb4f417e3458f8d3210bb9";
+    hash = "sha256-VjU88XatzBBpFrbXfcGArBAFK7pRBmpyXg5HC9AoOQA=";
   };
   odoo19 = smoke {
     major = "19";

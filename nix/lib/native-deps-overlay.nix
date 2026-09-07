@@ -16,7 +16,7 @@ final: prev:
         });
 
         # OpenLDAP 2.5+ merged libldap_r into libldap, but python-ldap 3.4.0
-        # (pinned by Odoo <= 17) still links -lldap_r. Alias it so the linker
+        # (pinned by Odoo 17) still links -lldap_r. Alias it so the linker
         # resolves; the resulting SONAME is libldap.so.2, satisfied at runtime
         # by openldap in buildInputs.
         openldapCompat = pkgs.runCommand "python-ldap-libldap_r-compat" { } ''
@@ -43,12 +43,7 @@ final: prev:
         # Legacy python packages that only have sdist and need setuptools to build
         # (evaluated lazily; harmless when a package is absent from uv.lock)
         gevent = addSetuptoolsBuildDep prev.gevent;
-        # ReportLab 3.5.59 passes this pointer to a const-char output argument.
-        # GCC 14 rejects the mismatched declaration in Odoo 16's pinned source.
-        reportlab = (addSetuptoolsBuildDep prev.reportlab).overrideAttrs (old: {
-            patches = (old.patches or []) ++ pkgs.lib.optional (old.version == "3.5.59")
-                ../patches/reportlab-const-encoding.patch;
-        });
+        reportlab = addSetuptoolsBuildDep prev.reportlab;
         pyusb = addSetuptoolsBuildDep prev.pyusb;
         pypdf2 = addSetuptoolsBuildDep prev.pypdf2;
         psutil = addSetuptoolsBuildDep prev.psutil;

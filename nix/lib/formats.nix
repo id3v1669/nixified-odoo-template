@@ -30,7 +30,7 @@ let
       ENV = { DEFAULT_REPO_PATTERN = config.defaultRepoPattern; ODOO_VERSION = config.odooVersion; };
     } ] else addonDocs);
   pythonMinor = lib.toInt (builtins.elemAt (lib.splitString "." config.python) 1);
-  legacyRuntime = lib.optional (config.derived.odooMajor <= 17) "setuptools<81";
+  legacyRuntime = lib.optional (config.derived.odooMajor == 17) "setuptools<81";
   overrides = legacyRuntime ++ lib.optional (pythonMinor >= 13)
     "markupsafe==3.0.3 ; python_full_version >= '3.13'"
     ++ lib.optional (pythonMinor >= 14)

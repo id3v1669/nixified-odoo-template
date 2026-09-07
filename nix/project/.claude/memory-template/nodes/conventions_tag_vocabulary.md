@@ -28,7 +28,7 @@ zero or more domain tags + optionally one status tag.
 `#queue_job` — OCA queue_job / queue_job_cron
 `#connector` — OCA component / connector
 `#web_responsive` — OCA web modules
-`#odoo_core` — base Odoo 16 CE (read-only, but sometimes referenced)
+`#odoo_core` — the project’s base Odoo CE checkout (read-only, but sometimes referenced)
 
 ## Type-of-work tags (what kind of activity)
 

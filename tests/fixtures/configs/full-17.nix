@@ -1,6 +1,6 @@
 {
   projectName = "ci-full";
-  odooVersion = "16.0";
+  odooVersion = "17.0";
   useQueueJob = true;
   customRepoPattern = "git@github.com:acme/{}.git";
   customRepoName = "acme-addons";

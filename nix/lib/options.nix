@@ -37,11 +37,11 @@ in
         (name: builtins.stringLength name <= 32);
       description = "Project name in lowercase kebab-case, at most 32 characters.";
     };
-    odooVersion = option (types.enum [ "16.0" "17.0" "18.0" "19.0" ]) "19.0" "Odoo branch.";
-    python = option (types.enum [ "3.10" "3.11" "3.12" "3.13" "3.14" ])
-      (if major == 16 then "3.10" else if major == 17 then "3.11" else "3.12")
+    odooVersion = option (types.enum [ "17.0" "18.0" "19.0" ]) "19.0" "Odoo branch.";
+    python = option (types.enum [ "3.11" "3.12" "3.13" "3.14" ])
+      (if major == 17 then "3.11" else "3.12")
       "Python interpreter version.";
-    postgres = option (types.enum [ 13 14 15 16 17 ])
+    postgres = option (types.enum [ 14 15 16 17 ])
       (if major <= 17 then 15 else 17) "PostgreSQL major version.";
     ports = option (types.submodule {
       options = {

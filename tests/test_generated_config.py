@@ -37,7 +37,7 @@ class GeneratedConfigTests(unittest.TestCase):
                       data["tool"]["uv"]["override-dependencies"])
 
     def test_legacy_odoo_has_pkg_resources_runtime_dependency(self):
-        for fixture in ("full-16", "repo-no-s3-17"):
+        for fixture in ("full-17", "repo-no-s3-17"):
             data = tomllib.loads((self.fixtures[fixture] / "pyproject.toml").read_text())
             self.assertIn("setuptools<81", data["project"]["dependencies"])
             self.assertIn("setuptools<81", data["tool"]["uv"]["override-dependencies"])
@@ -70,13 +70,13 @@ class GeneratedConfigTests(unittest.TestCase):
         debug = json.loads((root / ".zed/debug.json").read_text())[0]
         self.assertEqual(debug["python"], "$ZED_WORKTREE_ROOT/.venv/bin/dev-python")
         self.assertFalse(any("reload" in value for value in debug["args"]))
-        full = json.loads((self.fixtures["full-16"] / ".mcp.json").read_text())
+        full = json.loads((self.fixtures["full-17"] / ".mcp.json").read_text())
         self.assertIn("teams", full["mcpServers"])
         normal = json.loads((self.fixtures["default-19"] / ".mcp.json").read_text())
         self.assertEqual(set(normal["mcpServers"]), {"odoo", "postgres-mcp"})
 
     def test_mcp_passes_runtime_uri_as_one_argument(self):
-        root = self.fixtures["full-16"]
+        root = self.fixtures["full-17"]
         config = json.loads((root / ".mcp.json").read_text())["mcpServers"]["postgres-mcp"]
         with tempfile.TemporaryDirectory(prefix="mcp test ") as tmp:
             project = Path(tmp)

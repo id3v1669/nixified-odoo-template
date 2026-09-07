@@ -69,6 +69,15 @@ service_suffix: '-migrated'
         manifest = json.loads((self.project / '.nixodoo/manifest.json').read_text())
         self.assertEqual(manifest['ownershipOverrides']['CLAUDE.md'], 'seed')
 
+    def test_odoo16_migration_is_rejected_without_changing_files(self):
+        answers = self.project / '.copier-answers.yml'
+        answers.write_text(answers.read_text().replace("'19.0'", "'16.0'"))
+        before = self.snapshot()
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('odooVersion', result.stderr)
+        self.assertEqual(self.snapshot(), before)
+
     def test_unknown_framework_files_conflict_without_any_writes(self):
         (self.project / 'flake.nix').write_text('user-edited legacy flake\n')
         before = self.snapshot()
