@@ -145,9 +145,24 @@ def load_manifest(root, relative, *, missing=False):
     return validate_manifest(read_json(root / relative))
 
 
+def canonical_mode(actual):
+    """Declare public files by the owner executable bit, as Git does."""
+    if not 0 <= actual <= 0o777:
+        raise ValueError(f'unsupported file mode: {actual:o}')
+    return 0o755 if actual & 0o100 else 0o644
+
+
+def mode_compatible(actual, declared):
+    """Allow checkout permissions while retaining execution and privacy rules."""
+    return (0 <= actual <= 0o777
+            and bool(actual & 0o100) == bool(declared & 0o100)
+            and (declared != 0o600 or actual & 0o077 == 0))
+
+
 def matches(state, declaration):
-    return state is not None and declaration is not None and all(
-        state[key] == declaration[key] for key in ('sha256', 'mode'))
+    return (state is not None and declaration is not None
+            and state['sha256'] == declaration['sha256']
+            and mode_compatible(state['mode'], declaration['mode']))
 
 
 def prepare_update(project, candidate, *, edits=(), adoption=None):
@@ -215,7 +230,8 @@ def prepare_update(project, candidate, *, edits=(), adoption=None):
             raise ValueError(f'explicit metadata edits require seed ownership: {edit.path}')
         actual = read_state(project, edit.path)
         expected = None if edit.previous_hash is None else {'sha256': edit.previous_hash, 'mode': edit.previous_mode}
-        if actual != expected:
+        # This is a captured filesystem state, not a manifest declaration.
+        if actual != expected or (actual is not None and actual['mode'] > 0o777):
             conflicts.append(edit.path)
             continue
         operations = [operation for operation in operations if operation.path != edit.path]
@@ -357,6 +373,8 @@ def apply_update(project: Path, candidate: Path, *, edits=(), adoption=None) -> 
         for relative in paths:
             path = checked_path(project, relative)
             current = read_state(project, relative)
+            if current is not None and current['mode'] > 0o777:
+                raise ConflictError([relative], 'unsupported file mode')
             originals[relative] = None if current is None else {
                 'data': base64.b64encode(path.read_bytes()).decode(), 'mode': current['mode']}
             parent = path.parent

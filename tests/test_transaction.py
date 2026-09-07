@@ -123,6 +123,48 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual((self.project / 'nix/tool.sh').stat().st_mode & 0o777, 0o644)
         self.assertTrue((self.project / 'config.nix').is_file())
 
+    def test_checkout_permissions_do_not_conflict_or_cause_rewrites(self):
+        for regular, executable in ((0o664, 0o775), (0o600, 0o700), (0o444, 0o500)):
+            with self.subTest(regular=oct(regular), executable=oct(executable)):
+                (self.project / 'obsolete').chmod(regular)
+                (self.project / 'nix/tool.sh').chmod(executable)
+                self.assertEqual(transaction.plan_update(self.project, self.old), [])
+                operations = transaction.plan_update(self.project, self.new)
+                self.assertIn(('nix/tool.sh', 'replace'), [(op.path, op.action) for op in operations])
+
+    def test_private_declarations_reject_group_or_other_access(self):
+        candidate = self.make_candidate('private', {'private.txt': (b'private', 0o600, 'managed')})
+        transaction.apply_update(self.project, candidate)
+        (self.project / 'private.txt').chmod(0o400)
+        self.assertEqual(transaction.plan_update(self.project, candidate), [])
+        for mode in (0o640, 0o604, 0o700):
+            with self.subTest(mode=oct(mode)):
+                (self.project / 'private.txt').chmod(mode)
+                with self.assertRaises(transaction.ConflictError):
+                    transaction.plan_update(self.project, candidate)
+
+    def test_special_permission_bits_are_rejected_before_journaling(self):
+        for name, mode in (('nix/tool.sh', 0o4755), ('nix/tool.sh', 0o2755),
+                           ('nix/tool.sh', 0o1755), (transaction.MANIFEST, 0o4644)):
+            with self.subTest(name=name, mode=oct(mode)):
+                path = self.project / name
+                original_mode = path.stat().st_mode & 0o7777
+                path.chmod(mode)
+                try:
+                    with self.assertRaises(transaction.ConflictError):
+                        transaction.apply_update(self.project, self.new)
+                    self.assertEqual(path.stat().st_mode & 0o7777, mode)
+                    self.assertFalse((self.project / transaction.JOURNAL).exists())
+                finally:
+                    path.chmod(original_mode)
+
+    def test_explicit_edit_keeps_exact_permission_expectation(self):
+        state = transaction.read_state(self.project, 'config.nix')
+        edit = transaction.FileEdit('config.nix', b'new settings', state['sha256'], state['mode'])
+        (self.project / 'config.nix').chmod(0o664)
+        with self.assertRaises(transaction.ConflictError):
+            transaction.prepare_update(self.project, self.new, edits=[edit])
+
     def test_obsolete_local_edit_is_a_conflict(self):
         self.write('obsolete', b'keep this')
         before = self.snapshot()
@@ -168,6 +210,9 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaises(ValueError): transaction.plan_update(self.project, self.new)
 
     def test_failure_restores_bytes_modes_manifest_and_created_directories(self):
+        (self.project / 'nix/tool.sh').chmod(0o775)
+        (self.project / 'obsolete').chmod(0o664)
+        (self.project / transaction.MANIFEST).chmod(0o664)
         before = self.snapshot()
         original = os.replace
         failed = False
@@ -186,6 +231,8 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse((self.project / '.nixodoo/transaction').exists())
 
     def test_crash_refuses_further_apply_until_recovered(self):
+        (self.project / 'nix/tool.sh').chmod(0o700)
+        (self.project / 'obsolete').chmod(0o600)
         before = self.snapshot()
         script = '''import os,sys
 sys.path.insert(0,sys.argv[1])

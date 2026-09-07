@@ -92,9 +92,29 @@ service_suffix: '-migrated'
         baseline = self.root / 'pristine baseline'
         baseline.mkdir()
         (baseline / 'flake.nix').write_text('old framework flake\n')
+        (baseline / 'flake.nix').chmod(0o644)
+        for path in self.project.iterdir():
+            if path.is_file():
+                path.chmod(0o664)
+        for root, mode in ((self.project, 0o775), (baseline, 0o755)):
+            helper = root / 'nix/retired.sh'
+            helper.parent.mkdir()
+            helper.write_text('#!/bin/sh\nexit 0\n')
+            helper.chmod(mode)
+        (baseline / 'flake.nix').chmod(0o755)
+        rejected = self.run_cli('--baseline', baseline, '--check')
+        self.assertEqual(rejected.returncode, 2, rejected.stderr)
+        self.assertIn('flake.nix', rejected.stderr)
+        (baseline / 'flake.nix').chmod(0o644)
         result = self.run_cli('--baseline', baseline)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('vendored Nix generator', (self.project / 'flake.nix').read_text())
+        self.assertFalse((self.project / 'nix/retired.sh').exists())
+        manifest = json.loads((self.project / '.nixodoo/manifest.json').read_text())
+        self.assertTrue(all(declaration['mode'] in (0o600, 0o644, 0o755)
+                            for declaration in manifest['files'].values()))
+        self.assertEqual((self.project / '.nixodoo/secrets/db-password').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.project / '.nixodoo/migration-backup/.copier-answers.yml').stat().st_mode & 0o777, 0o600)
 
     def test_partial_nix_config_is_imported_and_backed_up(self):
         (self.project / '.copier-answers.yml').unlink()

@@ -14,7 +14,8 @@ import tomllib
 
 from dependencies import plan_metadata
 from transaction import (ConflictError, FileEdit, MANIFEST, apply_update, checked_path,
-                         load_manifest, prepare_update, read_json, read_state, recover, validate_path, RESERVED)
+                         canonical_mode, load_manifest, matches, prepare_update, read_json,
+                         read_state, recover, validate_path, RESERVED)
 
 
 class CommandError(ValueError):
@@ -183,7 +184,7 @@ def init_project(arguments, framework_reference, system):
 
 def metadata_edit(name, data, state):
     return FileEdit(name, data, state['sha256'] if state else None, state['mode'] if state else None,
-                    state['mode'] if state else 0o644)
+                    canonical_mode(state['mode']) if state else 0o644)
 
 
 def report_runtime(previous, current):
@@ -205,7 +206,7 @@ def report_preserved(project, candidate, manifest, operations):
         except ConflictError:
             actual = None
         expected = desired.get(name, declaration)
-        if actual is None or any(actual[key] != expected[key] for key in ('sha256', 'mode')):
+        if not matches(actual, expected):
             print(f'preserved: {name} (project-owned file differs or is missing)')
 
 
@@ -334,7 +335,7 @@ def migrate_project(arguments, framework_reference, system):
 
             def adopt(name, state, owner='managed'):
                 if state:
-                    adoption['files'][name] = dict(state, ownership=owner)
+                    adoption['files'][name] = dict(state, mode=canonical_mode(state['mode']), ownership=owner)
                 if owner == 'seed':
                     adoption['ownershipOverrides'][name] = 'seed'
 
@@ -385,7 +386,8 @@ def migrate_project(arguments, framework_reference, system):
                         continue
                     state = read_state(project, name)
                     baseline_state = read_state(baseline, name)
-                    if state is not None and state == baseline_state:
+                    if baseline_state is not None and matches(
+                            state, dict(baseline_state, mode=canonical_mode(baseline_state['mode']))):
                         adopt(name, state)
             unknown = []
             for path in (project / 'nix').rglob('*'):

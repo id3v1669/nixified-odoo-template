@@ -65,6 +65,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertEqual((self.project / 'config.nix').read_bytes(), before)
 
+    def test_refresh_commands_accept_git_checkout_umasks(self):
+        self.init()
+        for mask, regular, executable in ((0o002, 0o664, 0o775), (0o077, 0o600, 0o700)):
+            with self.subTest(mask=oct(mask)):
+                checkout = self.root / f'checkout-{mask:o}'
+                checkout.mkdir()
+                previous_mask = os.umask(mask)
+                try:
+                    subprocess.run(['git', 'checkout-index', '--all', '--prefix=' + str(checkout) + '/'],
+                                   cwd=self.project, check=True, capture_output=True)
+                finally:
+                    os.umask(previous_mask)
+                for args in (['git', 'init', '--initial-branch=main'], ['git', 'add', '--all']):
+                    subprocess.run(args, cwd=checkout, check=True, capture_output=True)
+                for command in ('update', 'refresh-config', 'refresh-deps'):
+                    args = [command] + (['--from', ROOT] if command == 'update' else [])
+                    preview = self.run_cli(*args, '--check', cwd=checkout)
+                    self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
+                    self.assertNotIn('preserved:', preview.stdout)
+                    applied = self.run_cli(*args, cwd=checkout)
+                    self.assertEqual(applied.returncode, 0, applied.stderr)
+                self.assertEqual((checkout / 'pyproject.toml').stat().st_mode & 0o777, regular)
+                self.assertEqual((checkout / 'nix/scripts/odoo.sh').stat().st_mode & 0o777, executable)
+                manifest = json.loads((checkout / '.nixodoo/manifest.json').read_text())
+                self.assertEqual(manifest['files']['pyproject.toml']['mode'], 0o644)
+                self.assertEqual(manifest['files']['nix/scripts/odoo.sh']['mode'], 0o755)
+
     def test_odoo16_initialization_is_rejected(self):
         result = self.run_cli('init', self.project, '--project-name', 'retired', '--odoo', '16.0')
         self.assertEqual(result.returncode, 2, result.stderr)
