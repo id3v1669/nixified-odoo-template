@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -128,6 +129,26 @@ def add_seed(candidate, manifest, name, data):
     path.chmod(0o644)
     manifest['files'][name] = {'sha256': hashlib.sha256(data).hexdigest(), 'mode': 0o644, 'ownership': 'seed'}
     (candidate / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+
+
+def requirements_file(project):
+    """Follow user-owned source links, but do not silently skip broken ones."""
+    requirements = project / 'src/odoo/requirements.txt'
+    for path in (project / 'src', requirements.parent, requirements):
+        if path.is_symlink():
+            try:
+                path.resolve(strict=True)
+            except FileNotFoundError as error:
+                raise ValueError(f'Broken symlink in requirements path: {path}') from error
+            except RuntimeError as error:
+                raise ValueError(f'Cannot resolve requirements path: {path}') from error
+    try:
+        mode = requirements.stat().st_mode
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(mode):
+        raise ValueError('requirements.txt must be a regular file')
+    return requirements
 
 
 def lock_dependencies(directory, tools, *, requirements=None):
@@ -252,11 +273,9 @@ def refresh_project(arguments, framework_reference, system):
                 (workspace / 'pyproject.toml').write_text(proposed)
                 if originals['uv.lock'] is not None:
                     (workspace / 'uv.lock').write_bytes(originals['uv.lock'])
-                requirements = checked_path(project, 'src/odoo/requirements.txt')
-                if requirements.exists() and read_state(project, 'src/odoo/requirements.txt') is None:
-                    raise ValueError('requirements.txt must be a regular file')
+                requirements = requirements_file(project)
                 tools = build(framework, config, provenance, system, 'tools')
-                lock_dependencies(workspace, tools, requirements=requirements if requirements.exists() else None)
+                lock_dependencies(workspace, tools, requirements=requirements)
                 edits = [metadata_edit(name, (workspace / name).read_bytes(), states[name])
                          for name in ('pyproject.toml', 'uv.lock')]
             edits.append(metadata_edit('config.nix', originals['config.nix'], states['config.nix']))

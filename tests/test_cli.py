@@ -300,6 +300,69 @@ print(json.dumps({
         self.assertIn('websocket-client>=1', metadata['project']['dependencies'])
         self.assertIn("markupsafe==3.0.3 ; python_full_version >= '3.13'", metadata['tool']['uv']['override-dependencies'])
 
+    def test_dependency_refresh_imports_symlinked_requirements(self):
+        self.init()
+        outside = self.root / 'outside-odoo'
+        outside.mkdir()
+        source = outside / 'requirements.txt'
+        checkout = self.project / 'src/odoo'
+        checkout.symlink_to(outside, target_is_directory=True)
+        for kind, requirement in (('checkout', 'websocket-client>=1'),
+                                  ('file', 'websocket-client>=1.1')):
+            with self.subTest(kind=kind):
+                if kind == 'file':
+                    checkout.unlink()
+                    checkout.mkdir()
+                    (checkout / 'requirements.txt').symlink_to(source)
+                source.write_text(requirement + '\n')
+                result = self.run_cli('refresh-deps', cwd=self.project)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                metadata = tomllib.loads((self.project / 'pyproject.toml').read_text())
+                self.assertIn(requirement, metadata['project']['dependencies'])
+                lock = tomllib.loads((self.project / 'uv.lock').read_text())
+                self.assertIn('websocket-client', [package['name'] for package in lock['package']])
+                self.assertEqual(source.read_text(), requirement + '\n')
+                self.assertTrue((checkout if kind == 'checkout' else checkout / 'requirements.txt').is_symlink())
+
+    def test_dependency_refresh_rejects_invalid_requirements_without_writes(self):
+        self.init()
+        checkout = self.project / 'src/odoo'
+        requirements = checkout / 'requirements.txt'
+        before = {name: (self.project / name).read_bytes()
+                  for name in ('config.nix', 'pyproject.toml', 'uv.lock', '.nixodoo/manifest.json')}
+        for kind in ('directory', 'dangling-file', 'dangling-checkout', 'dangling-src'):
+            with self.subTest(kind=kind):
+                if kind == 'directory':
+                    requirements.mkdir(parents=True)
+                elif kind == 'dangling-file':
+                    requirements.rmdir()
+                    requirements.symlink_to(self.root / 'missing-requirements')
+                elif kind == 'dangling-checkout':
+                    requirements.unlink()
+                    checkout.rmdir()
+                    checkout.symlink_to(self.root / 'missing-checkout', target_is_directory=True)
+                else:
+                    checkout.unlink()
+                    (self.project / 'src/.empty').unlink()
+                    (self.project / 'src').rmdir()
+                    (self.project / 'src').symlink_to(self.root / 'missing-src', target_is_directory=True)
+                result = self.run_cli('refresh-deps', cwd=self.project)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('requirements.txt must be a regular file' if kind == 'directory'
+                              else 'Broken symlink in requirements path', result.stderr)
+                for name, content in before.items():
+                    self.assertEqual((self.project / name).read_bytes(), content)
+                self.assertFalse((self.project / '.nixodoo/transaction').exists())
+
+    def test_dependency_refresh_allows_absent_requirements(self):
+        self.init()
+        for checkout_exists in (False, True):
+            with self.subTest(checkout_exists=checkout_exists):
+                if checkout_exists:
+                    (self.project / 'src/odoo').mkdir()
+                result = self.run_cli('refresh-deps', '--check', cwd=self.project)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
     def test_failed_dependency_resolution_leaves_project_unchanged(self):
         self.init()
         cli = load_cli()
