@@ -13,6 +13,8 @@ mkScript name {
   vars = (import ../../nix/lib/script-env.nix config) // {
     ODOO_PYTHON = "${pkgs.python3}/bin/python";
     ODOO_DEV_FLAGS = if dev then "--dev=reload,qweb,werkzeug,xml" else "";
+    NIXODOO_CONFIG_DIGEST = "test-digest";
+    NIXODOO_CHECK_CONFIG = "${../../nix/generator/check-config.py}";
     PROJECT_PYTHON = "${pkgs.python3}/bin/python";
     NGINX_BIN = "/test/bin/nginx";
     LOGROTATE_BIN = "/test/bin/logrotate";

@@ -1,6 +1,7 @@
 """Run packaged scripts in disposable project directories."""
 
 import configparser
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -72,6 +73,33 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(parser["options"]["db_name"], "sample")
         self.assertEqual(parser["queue_job"]["channels"], "root:3")
         self.assertEqual(parser["options"]["logfile"], str(self.project / "odoo.log"))
+
+    def test_existing_launcher_rejects_changed_config_and_old_profile(self):
+        source = self.project / 'src/odoo'
+        source.mkdir(parents=True)
+        (source / 'odoo-bin').write_text('print("server started")\n')
+        config = self.project / 'config.nix'
+        config.write_text('{ projectName = "test-project"; }\n')
+        manifest = self.project / '.nixodoo/manifest.json'
+        manifest.parent.mkdir()
+        metadata = {'configDigest': 'test-digest', 'configSourceDigest': hashlib.sha256(config.read_bytes()).hexdigest()}
+        manifest.write_text(json.dumps(metadata))
+        executable = self.build('odoo')
+        environment = os.environ | {'ODOO19_PROJECT_DIR': str(self.project)}
+        started = subprocess.run([str(executable)], cwd=self.project, env=environment, capture_output=True, text=True)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertIn('server started', started.stdout)
+        config.write_text(config.read_text() + '# edited after building the profile\n')
+        stale = subprocess.run([str(executable)], cwd=self.project, env=environment, capture_output=True, text=True)
+        self.assertEqual(stale.returncode, 2, stale.stderr)
+        self.assertIn('refresh-config', stale.stderr)
+        self.assertNotIn('server started', stale.stdout)
+        metadata['configSourceDigest'] = hashlib.sha256(config.read_bytes()).hexdigest()
+        metadata['configDigest'] = 'different-config'
+        manifest.write_text(json.dumps(metadata))
+        old_profile = subprocess.run([str(executable)], cwd=self.project, env=environment, capture_output=True, text=True)
+        self.assertEqual(old_profile.returncode, 2, old_profile.stderr)
+        self.assertIn('rebuild', old_profile.stderr.lower())
 
     def test_secret_file_is_only_read_at_runtime(self):
         secret = self.project / "password"

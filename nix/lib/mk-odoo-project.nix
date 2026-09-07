@@ -25,6 +25,8 @@ let
     vars = {
       ODOO_PYTHON = "${appPythonEnv}/bin/python";
       ODOO_DEV_FLAGS = flags;
+      NIXODOO_CONFIG_DIGEST = builtins.hashString "sha256" (builtins.toJSON config);
+      NIXODOO_CHECK_CONFIG = "${../generator/check-config.py}";
     };
   };
   odoo = mkOdoo "";
@@ -86,8 +88,14 @@ let
   servers = import ./servers.nix {
     inherit pkgs lib config appPythonEnv productionTools odoo odooDev postgresql welcome prodHelper testHelper;
   };
+  manifestPath = projectRoot + "/.nixodoo/manifest.json";
+  configCurrent = !(builtins.pathExists manifestPath)
+    || (builtins.fromJSON (builtins.readFile manifestPath)).configDigest
+      == builtins.hashString "sha256" (builtins.toJSON config);
 in {
-  packages = scripts // servers;
+  packages = scripts // lib.mapAttrs (_: server:
+    if configCurrent then server else throw "Generated configuration is stale. Run nix run .#refresh-config, then nix run .#refresh-deps if Python changed."
+  ) servers;
   apps = builtins.mapAttrs (name: script: {
     type = "app";
     program = "${script}/bin/${name}";

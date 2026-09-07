@@ -39,6 +39,15 @@ class FileOperation:
     previous_mode: int | None = None
 
 
+@dataclass(frozen=True)
+class FileEdit:
+    path: str
+    data: bytes
+    previous_hash: str | None
+    previous_mode: int | None
+    mode: int = 0o644
+
+
 def validate_path(path):
     if (not isinstance(path, str) or not path or '\x00' in path or path == '.nixodoo'
             or any(part in ('', '.', '..') for part in path.split('/'))
@@ -134,7 +143,7 @@ def matches(state, declaration):
         state[key] == declaration[key] for key in ('sha256', 'mode'))
 
 
-def prepare_update(project, candidate):
+def prepare_update(project, candidate, *, edits=()):
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     pending = checked_path(project, JOURNAL)
     if pending.exists():
@@ -182,14 +191,34 @@ def prepare_update(project, candidate):
         operations.append(FileOperation(path, action,
                                         actual['sha256'] if actual else None,
                                         actual['mode'] if actual else None))
+    edited = set()
+    for edit in edits:
+        validate_path(edit.path)
+        if edit.path in edited or edit.mode not in (0o644, 0o755):
+            raise ValueError(f'invalid explicit edit: {edit.path}')
+        edited.add(edit.path)
+        declaration = result['files'].get(edit.path)
+        if declaration and declaration['ownership'] != 'seed':
+            raise ValueError(f'explicit metadata edits require seed ownership: {edit.path}')
+        actual = read_state(project, edit.path)
+        expected = None if edit.previous_hash is None else {'sha256': edit.previous_hash, 'mode': edit.previous_mode}
+        if actual != expected:
+            conflicts.append(edit.path)
+            continue
+        operations = [operation for operation in operations if operation.path != edit.path]
+        updated = {'sha256': hashlib.sha256(edit.data).hexdigest(), 'mode': edit.mode, 'ownership': 'seed'}
+        result['files'][edit.path] = updated
+        if not matches(actual, updated):
+            operations.append(FileOperation(edit.path, 'replace' if actual else 'create',
+                                            edit.previous_hash, edit.previous_mode))
     if conflicts:
         raise ConflictError(conflicts)
     validate_manifest(result)
     return operations, result
 
 
-def plan_update(project: Path, candidate: Path) -> list[FileOperation]:
-    return prepare_update(project, candidate)[0]
+def plan_update(project: Path, candidate: Path, *, edits=()) -> list[FileOperation]:
+    return prepare_update(project, candidate, edits=edits)[0]
 
 
 def sync_directory(path):
@@ -292,10 +321,12 @@ def recover(project: Path):
         restore(project, read_json(record))
 
 
-def apply_update(project: Path, candidate: Path) -> None:
+def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     with project_lock(project):
-        operations, manifest = prepare_update(project, candidate)
+        edits = list(edits)
+        operations, manifest = prepare_update(project, candidate, edits=edits)
+        edit_data = {edit.path: edit.data for edit in edits}
         manifest_data = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()
         current_manifest = project / MANIFEST
         if not operations and current_manifest.exists() and read_json(current_manifest) == manifest:
@@ -327,8 +358,10 @@ def apply_update(project: Path, candidate: Path) -> None:
                     path.unlink()
                     sync_directory(path.parent)
                 else:
-                    source = checked_path(candidate / 'tree', operation.path)
-                    atomic_write(path, source.read_bytes(), manifest['files'][operation.path]['mode'], staging=directory)
+                    data = edit_data.get(operation.path)
+                    if data is None:
+                        data = checked_path(candidate / 'tree', operation.path).read_bytes()
+                    atomic_write(path, data, manifest['files'][operation.path]['mode'], staging=directory)
             atomic_write(current_manifest, manifest_data, 0o644, staging=directory)
         except BaseException:
             restore(project, journal)

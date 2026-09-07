@@ -19,10 +19,15 @@
         inherit inputs system config;
         projectRoot = self;
       };
+      generator = system: import ./nix/lib/project-apps.nix {
+        inherit system;
+        pkgs = import nixpkgs { inherit system; };
+        frameworkRoot = self;
+      };
       forSystems = f: builtins.listToAttrs (map (system: { name = system; value = f system; }) systems);
     in {
-      packages = forSystems (system: (perSystem system).packages);
-      apps = forSystems (system: (perSystem system).apps);
+      packages = forSystems (system: (perSystem system).packages // (generator system).packages);
+      apps = forSystems (system: (perSystem system).apps // (generator system).apps);
       checks = forSystems (system: (perSystem system).checks);
     };
 }

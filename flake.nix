@@ -22,7 +22,14 @@
       }) systems);
       normalizeConfig = import ./nix/lib/config.nix { lib = nixpkgs.lib; };
       fixtureNames = builtins.attrNames (builtins.readDir ./tests/fixtures/configs);
+      generator = system: import ./nix/lib/project-apps.nix {
+        inherit system;
+        pkgs = import nixpkgs { inherit system; };
+        frameworkRoot = self;
+      };
     in {
+      packages = forSystems (system: (generator system).packages);
+      apps = forSystems (system: (generator system).apps);
       lib = {
         inherit normalizeConfig;
         mkOdooProject = { projectRoot, config, system }: import ./nix/lib/mk-odoo-project.nix {

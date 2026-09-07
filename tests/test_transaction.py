@@ -353,6 +353,19 @@ transaction.apply_update(transaction.Path(sys.argv[2]),transaction.Path(sys.argv
         transaction.recover(self.project)
         self.assertEqual(self.snapshot(), before)
 
+    def test_explicit_metadata_edit_is_checked_and_applied_with_managed_files(self):
+        edit = transaction.FileEdit('config.nix', b'explicit refresh',
+                                    hashlib.sha256(b'local settings\n').hexdigest(), 0o644)
+        transaction.apply_update(self.project, self.new, edits=[edit])
+        self.assertEqual((self.project / 'config.nix').read_bytes(), b'explicit refresh')
+        self.assertEqual((self.project / 'nix/tool.sh').read_bytes(), b'new\n')
+        installed = json.loads((self.project / '.nixodoo/manifest.json').read_text())
+        self.assertEqual(installed['files']['config.nix']['ownership'], 'seed')
+        before = self.snapshot()
+        with self.assertRaises(transaction.ConflictError):
+            transaction.apply_update(self.project, self.new, edits=[edit])
+        self.assertEqual(self.snapshot(), before)
+
 
 if __name__ == '__main__':
     unittest.main()

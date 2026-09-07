@@ -23,6 +23,7 @@ for declaration in specification.pop("files"):
         "ownership": declaration["ownership"],
     }
 specification["files"] = files
+specification["configSourceDigest"] = files["config.nix"]["sha256"]
 metadata = tomllib.loads((tree / "pyproject.toml").read_text())
 specification["pythonOverrides"] = metadata.get("tool", {}).get("uv", {}).get("override-dependencies", [])
 (output / "manifest.json").write_text(json.dumps(specification, indent=2, sort_keys=True) + "\n")
