@@ -222,3 +222,8 @@ generator does not use it.
 ## License
 
 [MIT](LICENSE).
+
+## Credits
+
+This project is based on [Mark Okolov's nixodoo-copier-template](https://github.com/okolovmark/nixodoo-copier-template),
+which provided the original Odoo development environment and Claude tooling.
