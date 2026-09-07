@@ -43,6 +43,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
+    def test_init_accepts_single_character_project_prefix(self):
+        result = self.run_cli('init', self.project, '--project-name', 'a-team')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads((self.project / '.nixodoo/config.json').read_text())
+        self.assertEqual(config['modulePrefix'], 'custom')
+        self.assertTrue(config['useClaudeCode'])
+        self.assertTrue((self.project / '.git').is_dir())
+        refreshed = self.run_cli('refresh-config', '--check', cwd=self.project)
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+
     def test_init_bootstraps_lock_and_stages_without_committing(self):
         self.init()
         self.assertTrue((self.project / 'uv.lock').is_file())

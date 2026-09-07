@@ -68,8 +68,10 @@ in
     customRepoName = string
       (if config.customRepoPattern == "" then "" else "${config.projectName}-addons")
       "Custom addon repository name.";
-    modulePrefix = string (if builtins.elem prefix [ "odoo" "base" "web" ] then "custom" else prefix)
-      "Prefix for custom module names.";
+    modulePrefix = string
+      (if builtins.stringLength prefix < 2 || builtins.elem prefix [ "odoo" "base" "web" ]
+       then "custom" else prefix)
+      "Prefix for custom module names; defaults to the first project-name segment, or custom when that segment is reserved or shorter than two characters.";
     ticketPrefix = string "TASK" "Ticket key prefix.";
     readmeGenSource = string "git+https://github.com/OCA/maintainer-tools@master"
       "Source of the addon README generator.";

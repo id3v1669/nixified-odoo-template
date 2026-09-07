@@ -90,6 +90,23 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(cfg["usePipeline"])
         self.assertFalse(cfg["derived"]["withSsh"])
 
+    def test_module_prefix_defaults(self):
+        for project_name, expected in (("a-team", "custom"), ("ab-team", "ab"),
+                                       ("a1-team", "a1"), ("odoo-team", "custom"),
+                                       ("base-team", "custom"), ("web-team", "custom")):
+            for claude in (True, False):
+                with self.subTest(project_name=project_name, claude=claude):
+                    cfg = self.evaluate({"projectName": project_name, "useClaudeCode": claude})
+                    self.assertEqual(cfg["modulePrefix"], expected)
+
+    def test_explicit_module_prefix_validation_is_conditional_on_claude(self):
+        self.reject({"projectName": "a-team", "modulePrefix": "a"},
+                    "modulePrefix must be lowercase snake_case")
+        cfg = self.evaluate({"projectName": "a-team", "modulePrefix": "a", "useClaudeCode": False})
+        self.assertEqual(cfg["modulePrefix"], "a")
+        cfg = self.evaluate({"projectName": "a-team", "modulePrefix": "team"})
+        self.assertEqual(cfg["modulePrefix"], "team")
+
     def test_custom_repo_defaults_and_queue(self):
         cfg = self.evaluate({"projectName": "acme", "customRepoPattern": "git@example.com:acme/{}.git", "useQueueJob": True})
         self.assertEqual(cfg["customRepoName"], "acme-addons")
