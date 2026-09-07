@@ -72,6 +72,33 @@ services. Optional helpers handle S3 restores, SSH, repository updates, and
 isolated worktrees. Claude integration includes current project hooks, skills,
 agents, navigation tools, and editable project memory.
 
+### Optional development shell
+
+Generated projects also provide a development shell on NixOS and other Linux
+distributions with Nix. After the setup above, enter it from the project root:
+
+```bash
+nix develop
+```
+
+The shell uses the same `dev-server` package as the profile, including the
+project's Python dependencies, Odoo launcher, and development tools. It sets
+the configured `projectDirVar` to the current directory, so its commands still
+find the project after you change into a subdirectory. Use `exit` to leave.
+For a single command, run `nix develop --command python --version`.
+
+Entering the shell does not run setup, load `.env` into the shell, install a
+profile, or start services. The documented profile and setup commands remain
+supported; keep the profile installed for the existing Odoo user service and
+editor debugger. The shell itself works without an installed profile, but
+running Odoo still requires its source checkout, runtime configuration, and a
+running database. Avoid starting a second Odoo process on the service's port.
+
+After refreshing configuration or dependencies, exit and re-enter the shell
+to use the new environment. Existing projects receive the shell through
+`nix run .#update`; their README is a seed and is preserved during updates.
+The development shell in this generator repository is for generator maintenance.
+
 ## Configuration and updates
 
 Run these commands inside a generated project:

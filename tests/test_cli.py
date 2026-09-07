@@ -114,12 +114,52 @@ class CliTests(unittest.TestCase):
                                 cwd=self.project, capture_output=True, text=True)
         self.assertNotEqual(server.returncode, 0)
         self.assertIn('refresh-config', server.stderr)
+        shell = subprocess.run(['nix', 'eval', '.#devShells.x86_64-linux.default.drvPath'],
+                               cwd=self.project, capture_output=True, text=True)
+        self.assertNotEqual(shell.returncode, 0)
+        self.assertIn('refresh-config', shell.stderr)
         refresh = subprocess.run(['nix', 'run', '.#refresh-config', '--', '--check'],
                                  cwd=self.project, capture_output=True, text=True)
         self.assertEqual(refresh.returncode, 1, refresh.stderr)
         update = subprocess.run(['nix', 'eval', '--raw', '.#apps.x86_64-linux.update.program'],
                                 cwd=self.project, capture_output=True, text=True)
         self.assertEqual(update.returncode, 0, update.stderr)
+
+    def test_dev_shell_uses_project_tools_without_running_setup(self):
+        self.config.write_text('{ projectName = "cli-test"; odooVersion = "19.0"; python = "3.12"; '
+                               'projectDirVar = "CLI_PROJECT_DIR"; useClaudeCode = false; editor = "none"; }\n')
+        self.init()
+        before = {p.relative_to(self.project): p.read_bytes()
+                  for p in self.project.rglob('*') if p.is_file() and '.git' not in p.parts}
+        probe = '''
+import json, os, sys
+from pathlib import Path
+import websocket
+root = Path(os.environ['CLI_PROJECT_DIR'])
+os.chdir(root / 'src')
+print(json.dumps({
+    'root': str(root),
+    'python': list(sys.version_info[:2]),
+    'tools': dict(zip(('python', 'python3', 'odoo', 'psql', 'ruff', 'uv', 'git'), sys.argv[1:])),
+}))
+'''
+        command = ('python -c "$1" "$(command -v python)" "$(command -v python3)" '
+                   '"$(command -v odoo)" "$(command -v psql)" "$(command -v ruff)" '
+                   '"$(command -v uv)" "$(command -v git)"')
+        result = subprocess.run(['nix', 'develop', '--command', 'bash', '-c', command, '--', probe],
+                                cwd=self.project, capture_output=True, text=True,
+                                env=os.environ | {'CLI_PROJECT_DIR': '/wrong/inherited/project'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actual = json.loads(result.stdout)
+        self.assertEqual(actual['root'], str(self.project))
+        self.assertEqual(actual['python'], [3, 12])
+        for name, path in actual['tools'].items():
+            self.assertIsNotNone(path, name)
+            self.assertTrue(path.startswith('/nix/store/'), path)
+            self.assertIn('-cli-test-dev-server-19.0/bin/', path)
+        after = {p.relative_to(self.project): p.read_bytes()
+                 for p in self.project.rglob('*') if p.is_file() and '.git' not in p.parts}
+        self.assertEqual(after, before)
 
     def test_update_from_local_source_reports_changes_and_preserves_runtime(self):
         self.init()

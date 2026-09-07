@@ -28,6 +28,24 @@ Those commands run explicitly. They keep existing `.env`, `odoo.conf`, and
 nginx configuration, and regenerate systemd units and logrotate configuration.
 Inspect the instructions they print before enabling services.
 
+### Optional development shell
+
+After setup, run `nix develop` from the project root to use the project's
+Python dependencies, Odoo launcher, and development tools. This works on NixOS
+and other Linux distributions with Nix. The shell sets the configured
+`projectDirVar` to that directory, so commands still find the project after you
+change into a subdirectory. Use `exit` to leave, or run a single command with
+`nix develop --command python --version`.
+
+Shell entry does not run setup, load `.env` into the shell, install a profile,
+or start services. Keep using the profile and setup commands above for the
+existing Odoo user service and editor debugger. The shell itself needs no
+installed profile; running Odoo still needs its source checkout, runtime
+configuration, and a running database. Avoid starting a second Odoo process
+on the service's port.
+
+Exit and re-enter the shell after refreshing configuration or dependencies.
+
 ## Configuration and updates
 
 Edit `config.nix`, then run `nix run .#refresh-config`. Use `-- --check` to

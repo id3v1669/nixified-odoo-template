@@ -92,10 +92,16 @@ let
   configCurrent = !(builtins.pathExists manifestPath)
     || (builtins.fromJSON (builtins.readFile manifestPath)).configDigest
       == builtins.hashString "sha256" (builtins.toJSON config);
-in {
+in rec {
   packages = scripts // lib.mapAttrs (_: server:
     if configCurrent then server else throw "Generated configuration is stale. Run nix run .#refresh-config, then nix run .#refresh-deps if Python changed."
   ) servers;
+  devShells.default = pkgs.mkShell {
+    packages = [ packages.dev-server ];
+    shellHook = ''
+      export ${config.projectDirVar}="$PWD"
+    '';
+  };
   apps = builtins.mapAttrs (name: script: {
     type = "app";
     program = "${script}/bin/${name}";

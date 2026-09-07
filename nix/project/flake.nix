@@ -28,6 +28,7 @@
     in {
       packages = forSystems (system: (perSystem system).packages // (generator system).packages);
       apps = forSystems (system: (perSystem system).apps // (generator system).apps);
+      devShells = forSystems (system: (perSystem system).devShells);
       checks = forSystems (system: (perSystem system).checks);
     };
 }
