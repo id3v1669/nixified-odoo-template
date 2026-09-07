@@ -433,6 +433,30 @@ print(json.dumps({
         self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
         self.assertNotIn('runtime-only-sentinel', refreshed.stdout + refreshed.stderr)
 
+    def test_update_check_after_app_init_ignores_git_reference_spelling(self):
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        reference = 'git+' + ROOT.as_uri() + '?rev=' + revision
+        metadata = json.loads(subprocess.check_output(
+            ['nix', 'flake', 'metadata', '--json', '--no-write-lock-file', reference], cwd=ROOT, text=True))
+        provenance = {'kind': 'git', 'revision': metadata['locked']['rev'],
+                      'narHash': metadata['locked']['narHash']}
+        environment = os.environ | {'NIXODOO_SYSTEM': 'x86_64-linux',
+                                     'NIXODOO_FRAMEWORK_ROOT': metadata['path'],
+                                     'NIXODOO_PROVENANCE': json.dumps(provenance)}
+        initialized = subprocess.run([sys.executable, str(CLI), 'init', str(self.project),
+                                      '--config', str(self.config)], env=environment,
+                                     capture_output=True, text=True)
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        manifest = self.project / '.nixodoo/manifest.json'
+        before = manifest.read_bytes()
+        self.assertEqual(json.loads(before)['provenance'], provenance)
+        for source in (reference, reference + '&ref=HEAD'):
+            with self.subTest(source=source):
+                checked = self.run_cli('update', '--from', source, '--check', cwd=self.project)
+                self.assertEqual(checked.returncode, 0, checked.stderr + checked.stdout)
+                self.assertNotIn('update: .nixodoo/manifest.json', checked.stdout)
+                self.assertEqual(manifest.read_bytes(), before)
+
     def test_init_preserves_provenance_supplied_by_the_nix_app(self):
         cli = load_cli()
         provenance = {'kind': 'git', 'revision': '1' * 40, 'narHash': 'sha256-' + 'A' * 43 + '='}

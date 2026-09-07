@@ -128,8 +128,9 @@ Changing Python also requires `refresh-deps`. Changes to PostgreSQL versions,
 ports, or runtime paths require a separate review of existing databases,
 configuration, and services. A generator refresh does not migrate a database.
 
-The manifest records the framework revision or local source hash, normalized
-configuration, file hashes, modes, and ownership. Updates replace unchanged
+The manifest records the framework revision and source hash for Git sources,
+or the source hash for local sources. It also records normalized configuration,
+file hashes, modes, and ownership. Updates replace unchanged
 managed files and remove obsolete unchanged managed files. Local edits to those
 files cause a conflict before changes are applied. Resolve a conflict by
 reviewing and saving the local change, restoring the recorded file, and moving

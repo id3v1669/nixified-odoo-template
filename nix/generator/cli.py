@@ -89,7 +89,7 @@ def framework_source(reference):
         locked = metadata['locked']
         provenance = {'kind': 'local', 'narHash': locked['narHash']}
         if not local and locked.get('rev'):
-            provenance = {'kind': 'git', 'source': str(reference), 'revision': locked['rev'], 'narHash': locked['narHash']}
+            provenance = {'kind': 'git', 'revision': locked['rev'], 'narHash': locked['narHash']}
         yield resolve_root(metadata['path']), provenance
 
 
