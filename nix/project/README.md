@@ -74,7 +74,11 @@ configuration remain outside the managed inventory.
 Editor settings can be declared under `editorSettings.vscode`,
 `editorSettings.zed`, and `editorSettings.odools`. Repository declarations
 under `repositories.base` and `repositories.addons` generate `repos.yaml`
-and `addons.yaml`. Run `nix run .#update-repos` to apply checkout changes.
+and `addons.yaml`. `repositories.base` must contain exactly one Odoo core
+checkout at `src/odoo`; its URL may point to a fork. Additional base entries
+only clone or update checkouts. Declare repositories whose addon modules
+should be linked and indexed in `repositories.addons`. Run
+`nix run .#update-repos` to apply checkout changes.
 
 Use Conventional Commits for project and addon changes.
 

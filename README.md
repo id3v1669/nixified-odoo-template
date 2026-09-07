@@ -139,7 +139,11 @@ journal; retain it and run `recover` before retrying.
 
 Declare editor overrides in `editorSettings.vscode`, `.zed`, and `.odools`.
 Declare repositories in `repositories.base` and `repositories.addons`, then run
-`update-repos` to update their checkouts and addon links.
+`update-repos` to update their checkouts and addon links. `repositories.base`
+must contain exactly one Odoo core checkout at `src/odoo`; its URL may point
+to a fork. Additional base entries only clone or update checkouts. Declare
+repositories whose addon modules should be linked and indexed in
+`repositories.addons`.
 
 ## Credentials
 

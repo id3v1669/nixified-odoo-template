@@ -97,7 +97,7 @@ in
         base = option (types.listOf baseRepo) [ {
           path = "src/odoo";
           url = "https://github.com/odoo/odoo.git";
-        } ] "Base source checkouts.";
+        } ] "Exactly one Odoo core checkout at src/odoo (fork URLs supported), plus optional checkout-only repositories; use repositories.addons for addon linking and indexing.";
         addons = option (types.listOf addonRepo) (
           lib.optional config.useQueueJob {
             name = "queue";
@@ -135,6 +135,10 @@ in
         assertion = lib.length (lib.unique (map (repo: repo.path) config.repositories.base))
           == lib.length config.repositories.base;
         message = "repositories.base must have unique paths.";
+      }
+      {
+        assertion = lib.length (builtins.filter (repo: repo.path == "src/odoo") config.repositories.base) == 1;
+        message = "repositories.base must contain exactly one Odoo core checkout at src/odoo; additional base entries are checkout-only repositories.";
       }
       {
         assertion = builtins.all (repo: repo.name != "ENV") config.repositories.addons;

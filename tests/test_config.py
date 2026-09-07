@@ -101,6 +101,23 @@ class ConfigTests(unittest.TestCase):
         cfg = self.evaluate({"projectName": "acme", "useQueueJob": True, "repositories": {"addons": []}})
         self.assertEqual(cfg["repositories"]["addons"], [])
 
+    def test_base_repositories_require_core_at_standard_path(self):
+        for paths in ([], ["src/core"], ["src/enterprise"], ["src/odoo", "src/odoo"]):
+            with self.subTest(paths=paths):
+                self.reject({"projectName": "acme", "repositories": {
+                    "base": [{"path": path, "url": "https://example.com/repo.git"} for path in paths],
+                }}, "repositories.base must contain exactly one Odoo core checkout at src/odoo")
+
+    def test_base_repositories_allow_extra_checkouts_before_core(self):
+        repositories = [
+            {"path": "src/enterprise", "url": "https://example.com/enterprise.git"},
+            {"path": "src/odoo", "url": "https://example.com/core-fork.git"},
+        ]
+        cfg = self.evaluate({"projectName": "acme", "repositories": {"base": repositories}})
+        self.assertEqual([repo["path"] for repo in cfg["repositories"]["base"]],
+                         ["src/enterprise", "src/odoo"])
+        self.assertEqual(cfg["repositories"]["base"][1]["url"], repositories[1]["url"])
+
     def test_repository_collisions_and_unsafe_modules_are_rejected(self):
         for repositories in [
             {"base": [{"path": "src/odoo", "url": "one"}, {"path": "src/odoo", "url": "two"}]},
