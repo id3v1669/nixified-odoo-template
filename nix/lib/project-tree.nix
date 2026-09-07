@@ -7,8 +7,8 @@ let
   paths = map (file: file.path) files;
   runtimePaths = [ ".git" ".env" ".postgres" ".aws" ".ssh" ".venv" ".local" ".nginx" ".worktrees"
     "backup" "odoo.conf" "odoo.log" ".logrotate.conf" ".logrotate.state" ".nixodoo/manifest.json"
-    ".nixodoo/transaction" ".nixodoo/lock" ];
-  safe = path: path != "" && !(lib.hasPrefix "/" path)
+    ".nixodoo/transaction" ".nixodoo/lock" ".nixodoo/migration-backup" ".nixodoo/secrets" ];
+  safe = path: path != "" && path != ".nixodoo" && path != "src" && !(lib.hasPrefix "/" path)
     && builtins.all (part: part != ".." && part != "." && part != "") (lib.splitString "/" path)
     && builtins.all (reserved: path != reserved && !(lib.hasPrefix "${reserved}/" path)) runtimePaths
     && (!(lib.hasPrefix "src/" path) || path == "src/.empty");

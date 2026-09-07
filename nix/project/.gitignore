@@ -29,3 +29,4 @@ result
 .nixodoo/lock
 .nixodoo/transaction/
 .nixodoo/migration-backup/
+.nixodoo/secrets/

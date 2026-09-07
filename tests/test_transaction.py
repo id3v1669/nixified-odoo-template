@@ -366,6 +366,34 @@ transaction.apply_update(transaction.Path(sys.argv[2]),transaction.Path(sys.argv
             transaction.apply_update(self.project, self.new, edits=[edit])
         self.assertEqual(self.snapshot(), before)
 
+    def test_migration_adoption_and_private_writes_share_rollback(self):
+        (self.project / '.nixodoo/manifest.json').unlink()
+        adoption = json.loads((self.old / 'manifest.json').read_text())
+        secret = transaction.FileEdit('.nixodoo/secrets/db-password', b'private value', None, None,
+                                      mode=0o600, private=True)
+        before = self.snapshot()
+        original = os.replace
+        failed = False
+
+        def fail_manifest(source, destination, *args, **kwargs):
+            nonlocal failed
+            if Path(destination) == self.project / '.nixodoo/manifest.json' and not failed:
+                failed = True
+                raise OSError('migration interrupted')
+            return original(source, destination, *args, **kwargs)
+
+        with patch.object(transaction.os, 'replace', side_effect=fail_manifest):
+            with self.assertRaises(OSError):
+                transaction.apply_update(self.project, self.new, adoption=adoption, edits=[secret])
+        self.assertEqual(self.snapshot(), before)
+        transaction.apply_update(self.project, self.new, adoption=adoption, edits=[secret])
+        self.assertEqual((self.project / secret.path).stat().st_mode & 0o777, 0o600)
+        manifest = json.loads((self.project / '.nixodoo/manifest.json').read_text())
+        self.assertNotIn(secret.path, manifest['files'])
+        self.assertNotIn('private value', json.dumps(manifest))
+        with self.assertRaises(ValueError):
+            transaction.apply_update(self.project, self.new, adoption=adoption)
+
 
 if __name__ == '__main__':
     unittest.main()

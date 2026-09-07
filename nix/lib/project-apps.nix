@@ -9,7 +9,7 @@ let
     kind = "local";
     narHash = frameworkRoot.narHash;
   };
-  commands = [ "init" "update" "refresh-config" "refresh-deps" "recover" ];
+  commands = [ "init" "update" "refresh-config" "refresh-deps" "recover" "migrate" ];
   packages = builtins.listToAttrs (map (name: {
     inherit name;
     value = pkgs.writeShellApplication {

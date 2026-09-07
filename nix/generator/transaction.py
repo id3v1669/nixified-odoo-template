@@ -17,7 +17,8 @@ MANIFEST = '.nixodoo/manifest.json'
 JOURNAL = '.nixodoo/transaction'
 RESERVED = ('.git', '.env', '.postgres', '.aws', '.ssh', '.venv', '.local', '.nginx',
             '.worktrees', 'backup', 'odoo.conf', 'odoo.log', '.logrotate.conf',
-            '.logrotate.state', MANIFEST, JOURNAL, '.nixodoo/lock', '.nixodoo/migration-backup')
+            '.logrotate.state', MANIFEST, JOURNAL, '.nixodoo/lock', '.nixodoo/migration-backup', '.nixodoo/secrets')
+PRIVATE_ROOTS = ('.nixodoo/migration-backup', '.nixodoo/secrets')
 
 
 class ConflictError(Exception):
@@ -46,12 +47,18 @@ class FileEdit:
     previous_hash: str | None
     previous_mode: int | None
     mode: int = 0o644
+    private: bool = False
 
 
-def validate_path(path):
+def validate_path(path, *, private=False):
+    reserved = RESERVED
+    if private:
+        if not isinstance(path, str) or not any(path == root or path.startswith(root + '/') for root in PRIVATE_ROOTS):
+            raise ValueError('private migration writes must stay in the backup or secrets directory')
+        reserved = tuple(item for item in RESERVED if item not in PRIVATE_ROOTS)
     if (not isinstance(path, str) or not path or '\x00' in path or path == '.nixodoo'
             or any(part in ('', '.', '..') for part in path.split('/'))
-            or any(path == item or path.startswith(item + '/') for item in RESERVED)
+            or any(path == item or path.startswith(item + '/') for item in reserved)
             or (path == 'src' or path.startswith('src/')) and path != 'src/.empty'):
         raise ValueError(f'unsafe managed path: {path!r}')
     return path
@@ -106,7 +113,7 @@ def validate_manifest(manifest):
         if (not isinstance(declaration, dict)
                 or not isinstance(declaration.get('sha256'), str)
                 or not re.fullmatch('[0-9a-f]{64}', declaration['sha256'])
-                or declaration.get('mode') not in (0o644, 0o755)
+                or declaration.get('mode') not in (0o600, 0o644, 0o755)
                 or declaration.get('ownership') not in ('seed', 'managed')):
             raise ValueError(f'invalid file declaration: {path}')
         parent = Path(path).parent
@@ -143,12 +150,16 @@ def matches(state, declaration):
         state[key] == declaration[key] for key in ('sha256', 'mode'))
 
 
-def prepare_update(project, candidate, *, edits=()):
+def prepare_update(project, candidate, *, edits=(), adoption=None):
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     pending = checked_path(project, JOURNAL)
     if pending.exists():
         raise RecoveryRequired()
     previous = load_manifest(project, MANIFEST, missing=True)
+    if adoption is not None:
+        if read_state(project, MANIFEST) is not None:
+            raise ValueError('migration adoption requires a project without an installed manifest')
+        previous = validate_manifest(adoption)
     proposed = load_manifest(candidate, 'manifest.json')
     for path, declaration in proposed['files'].items():
         actual = read_state(candidate / 'tree', path)
@@ -193,8 +204,10 @@ def prepare_update(project, candidate, *, edits=()):
                                         actual['mode'] if actual else None))
     edited = set()
     for edit in edits:
-        validate_path(edit.path)
-        if edit.path in edited or edit.mode not in (0o644, 0o755):
+        validate_path(edit.path, private=edit.private)
+        if edit.private and (adoption is None or edit.mode != 0o600 or edit.path in PRIVATE_ROOTS):
+            raise ValueError('private writes require explicit migration and mode 0600')
+        if edit.path in edited or edit.mode not in (0o600, 0o644, 0o755):
             raise ValueError(f'invalid explicit edit: {edit.path}')
         edited.add(edit.path)
         declaration = result['files'].get(edit.path)
@@ -207,7 +220,8 @@ def prepare_update(project, candidate, *, edits=()):
             continue
         operations = [operation for operation in operations if operation.path != edit.path]
         updated = {'sha256': hashlib.sha256(edit.data).hexdigest(), 'mode': edit.mode, 'ownership': 'seed'}
-        result['files'][edit.path] = updated
+        if not edit.private:
+            result['files'][edit.path] = updated
         if not matches(actual, updated):
             operations.append(FileOperation(edit.path, 'replace' if actual else 'create',
                                             edit.previous_hash, edit.previous_mode))
@@ -217,8 +231,8 @@ def prepare_update(project, candidate, *, edits=()):
     return operations, result
 
 
-def plan_update(project: Path, candidate: Path, *, edits=()) -> list[FileOperation]:
-    return prepare_update(project, candidate, edits=edits)[0]
+def plan_update(project: Path, candidate: Path, *, edits=(), adoption=None) -> list[FileOperation]:
+    return prepare_update(project, candidate, edits=edits, adoption=adoption)[0]
 
 
 def sync_directory(path):
@@ -273,12 +287,17 @@ def restore(project, journal):
     if not isinstance(journal, dict) or journal.get('schemaVersion') != 1:
         raise ValueError('invalid recovery journal')
     originals, directories = journal['originals'], journal['directories']
+    private_paths = journal.get('privatePaths', [])
+    if not isinstance(private_paths, list):
+        raise ValueError('invalid private recovery paths')
+    for relative in private_paths:
+        validate_path(relative, private=True)
     if not isinstance(originals, dict) or not isinstance(directories, list):
         raise ValueError('invalid recovery entries')
     decoded = {}
     for relative, original in originals.items():
         if relative != MANIFEST:
-            validate_path(relative)
+            validate_path(relative, private=relative in private_paths)
         read_state(project, relative)
         if original is None:
             decoded[relative] = None
@@ -289,7 +308,8 @@ def restore(project, journal):
             decoded[relative] = (base64.b64decode(original['data'], validate=True), original['mode'])
     for relative in directories:
         if relative != 'src':
-            validate_path(relative)
+            private = any(relative == root or relative.startswith(root + '/') for root in PRIVATE_ROOTS)
+            validate_path(relative, private=private)
         checked_path(project, relative)
     for relative, original in decoded.items():
         path = checked_path(project, relative)
@@ -321,12 +341,13 @@ def recover(project: Path):
         restore(project, read_json(record))
 
 
-def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
+def apply_update(project: Path, candidate: Path, *, edits=(), adoption=None) -> None:
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     with project_lock(project):
         edits = list(edits)
-        operations, manifest = prepare_update(project, candidate, edits=edits)
+        operations, manifest = prepare_update(project, candidate, edits=edits, adoption=adoption)
         edit_data = {edit.path: edit.data for edit in edits}
+        edit_modes = {edit.path: edit.mode for edit in edits}
         manifest_data = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()
         current_manifest = project / MANIFEST
         if not operations and current_manifest.exists() and read_json(current_manifest) == manifest:
@@ -342,7 +363,8 @@ def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
             while not parent.exists():
                 directories.add(parent.relative_to(project).as_posix())
                 parent = parent.parent
-        journal = {'schemaVersion': 1, 'originals': originals, 'directories': sorted(directories)}
+        journal = {'schemaVersion': 1, 'originals': originals, 'directories': sorted(directories),
+                   'privatePaths': [edit.path for edit in edits if edit.private]}
         directory = checked_path(project, JOURNAL)
         directory.mkdir(mode=0o700)
         atomic_write(directory / 'state.json', (json.dumps(journal) + '\n').encode(), 0o600)
@@ -350,7 +372,8 @@ def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
         try:
             for relative in sorted(directories, key=lambda path: len(Path(path).parts)):
                 parent = checked_path(project, relative)
-                parent.mkdir()
+                private = any(relative == root or relative.startswith(root + '/') for root in PRIVATE_ROOTS)
+                parent.mkdir(mode=0o700 if private else 0o755)
                 sync_directory(parent.parent)
             for operation in operations:
                 path = checked_path(project, operation.path)
@@ -361,7 +384,8 @@ def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
                     data = edit_data.get(operation.path)
                     if data is None:
                         data = checked_path(candidate / 'tree', operation.path).read_bytes()
-                    atomic_write(path, data, manifest['files'][operation.path]['mode'], staging=directory)
+                    mode = edit_modes[operation.path] if operation.path in edit_modes else manifest['files'][operation.path]['mode']
+                    atomic_write(path, data, mode, staging=directory)
             atomic_write(current_manifest, manifest_data, 0o644, staging=directory)
         except BaseException:
             restore(project, journal)

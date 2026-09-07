@@ -221,7 +221,7 @@ class CliTests(unittest.TestCase):
 
     def test_cli_values_escape_nix_interpolation(self):
         cli = load_cli()
-        expected = {'text': '${builtins.abort "must stay literal"}\npath\\name', 'flag': True, 'count': 42}
+        expected = {'text': '${builtins.abort "must stay literal"}\npath\\name', 'flag': True, 'count': 42, 'fraction': 1.5}
         source = self.root / 'values.nix'
         source.write_text(cli.nix_value(expected))
         result = subprocess.run(['nix-instantiate', '--eval', '--strict', '--json', str(source)],
