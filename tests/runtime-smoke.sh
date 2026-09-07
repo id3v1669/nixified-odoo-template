@@ -9,8 +9,18 @@ export PGHOST="$project/socket" PGPORT=25432 PGUSER=odoo
 mkdir -p "$PGHOST" "$project/src"
 ln -s "$ODOO_SOURCE" "$project/src/odoo"
 cleanup() {
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        for log in "$project/initdb.log" "$project/postgres.log" "$project/backup/pg_restore.log"; do
+            if [ -f "$log" ]; then
+                printf '\n--- %s ---\n' "$log" >&2
+                cat "$log" >&2 || true
+            fi
+        done
+    fi
     pg_ctl -D "$project/database" -m immediate -w stop >/dev/null 2>&1 || true
-    rm -rf "$project"
+    rm -rf "$project" || true
+    exit "$status"
 }
 trap cleanup EXIT
 initdb -D "$project/database" -U odoo --auth-local=trust --auth-host=reject >"$project/initdb.log"

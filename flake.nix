@@ -94,7 +94,7 @@
       devShells = forSystems (system:
         let pkgs = import nixpkgs { inherit system; }; in {
           default = pkgs.mkShell {
-            packages = [ pkgs.nix
+            packages = [ pkgs.nix pkgs.git pkgs.nodejs pkgs.postgresql_14 pkgs.actionlint
               (pkgs.python3.withPackages (python: [ python.tomlkit python.pyyaml python.packaging ]))
               pkgs.uv pkgs.shellcheck pkgs.nixfmt-rfc-style ];
           };

@@ -4,32 +4,83 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   generator:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: nixbuild/nix-quick-install-action@v35
+        with:
+          nix_conf: |
+            keep-derivations = true
+            keep-outputs = true
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-generator-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**', 'tests/**', '.github/workflows/ci.yml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-generator-
+          # PRs reuse trusted caches; successful branch runs replace older snapshots.
+          save: ${{ github.event_name != 'pull_request' }}
+          purge: ${{ github.event_name != 'pull_request' }}
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-generator-
+          purge-created: 0
+          purge-primary-key: never
+          # Best-effort target; current build roots remain protected.
+          gc-max-store-size-linux: 2G
+      - name: Validate workflow
+        run: nix develop --profile "$RUNNER_TEMP/ci-shell" --command actionlint
       - name: Configuration and lifecycle tests
-        run: nix develop --command python3 -m unittest discover -s tests
+        run: nix develop --command python3 tests/run_ci.py
       - name: Generated files and scripts
         run: |
-          nix build --no-link -L .#checks.x86_64-linux.configuration \
+          nix build --out-link "$RUNNER_TEMP/ci-check" -L .#checks.x86_64-linux.configuration \
             .#checks.x86_64-linux.projectTrees .#checks.x86_64-linux.projectHelpers \
             .#checks.x86_64-linux.formats .#checks.x86_64-linux.shellcheck \
             .#checks.x86_64-linux.bootstrap .#checks.x86_64-linux.runtimeShellcheck
       - name: Evaluate aarch64 outputs
-        run: nix eval --json .#checks.aarch64-linux --apply 'builtins.mapAttrs (_: value: value.drvPath)'
+        run: |
+          nix eval --json .#checks.aarch64-linux --apply 'builtins.mapAttrs (_: value: value.drvPath)'
 
   runtime:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
         odoo: [17, 18, 19]
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: nixbuild/nix-quick-install-action@v35
+        with:
+          nix_conf: |
+            keep-derivations = true
+            keep-outputs = true
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-odoo${{ matrix.odoo }}-${{ hashFiles('flake.lock', 'flake.nix', 'nix/**', 'tests/**', '.github/workflows/ci.yml') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-odoo${{ matrix.odoo }}-
+          # PRs reuse trusted caches; successful branch runs replace older snapshots.
+          save: ${{ github.event_name != 'pull_request' }}
+          purge: ${{ github.event_name != 'pull_request' }}
+          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-odoo${{ matrix.odoo }}-
+          purge-created: 0
+          purge-primary-key: never
+          # Best-effort target; current build roots remain protected.
+          gc-max-store-size-linux: 2G
       - name: Build and initialize Odoo with disposable PostgreSQL
-        run: nix build --no-link -L .#checks.x86_64-linux.odoo${{ matrix.odoo }}
+        run: nix build --out-link "$RUNNER_TEMP/ci-runtime" -L .#checks.x86_64-linux.odoo${{ matrix.odoo }}
