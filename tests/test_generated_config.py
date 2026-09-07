@@ -71,7 +71,7 @@ class GeneratedConfigTests(unittest.TestCase):
         self.assertEqual(debug["python"], "$ZED_WORKTREE_ROOT/.venv/bin/dev-python")
         self.assertFalse(any("reload" in value for value in debug["args"]))
         full = json.loads((self.fixtures["full-17"] / ".mcp.json").read_text())
-        self.assertIn("teams", full["mcpServers"])
+        self.assertEqual(set(full["mcpServers"]), {"odoo", "postgres-mcp"})
         normal = json.loads((self.fixtures["default-19"] / ".mcp.json").read_text())
         self.assertEqual(set(normal["mcpServers"]), {"odoo", "postgres-mcp"})
 

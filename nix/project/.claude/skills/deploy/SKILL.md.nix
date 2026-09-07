@@ -25,9 +25,11 @@ ${lib.optionalString (config.statusMcp == "teams") ''
 **Maintenance chat** — the group chat this project announces deploys in. Its
 `chatId` belongs in the memory node `user_identity` (add it there the first time
 you resolve it, so it is never guessed again); resolve by topic with
-`mcp__teams__list_chats` if the id errors because the chat was recreated.
-- Send via `mcp__teams__send_chat_message`, `format: markdown` — the
-  `teams-message` skill is the authority on message shape.
+`mcp__claude_ai_Microsoft_365__teams_list_chats` if the id errors because the
+chat was recreated.
+- Send via `mcp__claude_ai_Microsoft_365__teams_send_chat_message`,
+  `bodyType: "html"`. Follow `teams-message` for formatting; the connector
+  does not convert Markdown.
 - **Always write notifications in English**; this chat is team-visible.
 
 ''}
@@ -196,17 +198,23 @@ ${lib.optionalString (config.statusMcp == "teams") ''
 
 ## Step 4 — Notify start
 
-`mcp__teams__auth_status` must be the identity-node account (else run the
-re-auth yourself — `teams-message` skill, Send step 1; only the passkey prompt
-is the user's). Then send to the maintenance chat:
+`mcp__claude_ai_Microsoft_365__get_me` must match the account in the identity
+node. On a mismatch or authentication error, stop and ask the user to reconnect
+Microsoft 365 in claude.ai under Customize → Connectors (`teams-message` skill,
+Send step 1). Then send to the maintenance chat.
 
-```
-🟡 **Deploying — <PR title>**
-**Modules:** `<modules>`
-**Blast radius:** <high|medium|low>
-**PR:** <url>
-**What changed:** <plain 2-4 sentence summary, what + why>
-Starting deploy on <${if (config.testSshHost != "") then ''prod|test'' else ''prod''}>…
+Every template below is **HTML**, and `{...}` marks a placeholder to fill.
+HTML-escape `<` and `&` in the values you substitute in. For multiline
+diagnostics and check summaries, HTML-escape each line first, then join the lines with `<br>`.
+Do not escape the inserted `<br>` tags or rely on raw newlines for spacing.
+
+```html
+<p>🟡 <strong>Deploying: {PR title}</strong></p>
+<p><strong>Modules:</strong> <code>{modules}</code><br>
+<strong>Blast radius:</strong> {high|medium|low}<br>
+<strong>PR:</strong> <a href="{pr url}">#{n}</a></p>
+<p><strong>What changed:</strong> {plain 2-4 sentence summary, what + why}</p>
+<p>Starting deploy on ${if (config.testSshHost != "") then ''{prod|test}'' else ''prod''}.</p>
 ```
 ''}
 
@@ -287,10 +295,10 @@ cat "$CHECKS/invariant-check.py" "$CHECKS/invariant_local.py" | \
   way.
 ${if (config.statusMcp == "teams") then ''  Any `: FAIL` line → additionally post right after the Step-7
   message:
-  ```
-  ⚠️ **Post-deploy invariant FAILED — <PR title>**
-  <the FAIL lines verbatim>
-  Investigating.
+  ```html
+  <p>⚠️ <strong>Post-deploy invariant FAILED: {PR title}</strong></p>
+  <p>{the FAIL lines verbatim, HTML-escaped and joined with <br>}</p>
+  <p>Investigating.</p>
   ```
   …and show the user the full output. `: WARN` lines → user only, not the chat.
 '' else ''  Show the user every `: FAIL` line verbatim, and the full output.
@@ -314,9 +322,9 @@ ${if (config.statusMcp == "teams") then ''
 ## Step 7 — Notify the result (truthfully)
 
 - **Deploy exit 0** -> send:
-  ```
-  ✅ **Deployed — <PR title>**
-  `<modules>` updated on <${if (config.testSshHost != "") then ''prod|test'' else ''prod''}>.${lib.optionalString (config.prodWebUrl != "") '' ${config.prodWebUrl}''}
+  ```html
+  <p>✅ <strong>Deployed: {PR title}</strong></p>
+  <p><code>{modules}</code> updated on ${if (config.testSshHost != "") then ''{prod|test}'' else ''prod''}.${lib.optionalString (config.prodWebUrl != "") ''<br><a href="${config.prodWebUrl}">Odoo</a>''}</p>
   ```
 ${lib.optionalString (config.useQueueJob) ''  Tell the user (not the chat) the requeued count from Step 6.
 ''}
@@ -326,11 +334,11 @@ ${lib.optionalString (config.useQueueJob) ''  Tell the user (not the chat) the r
     user (not the chat) those lines as warnings.
 - **Non-zero deploy exit** -> name the failing step, paste the last error lines,
   STOP:
-  ```
-  ❌ **Deploy FAILED — <PR title>**
-  Step: <git pull | link-addons | module update | restart>
-  <last error lines>
-  Prod may be in a partial state — needs a manual look.
+  ```html
+  <p>❌ <strong>Deploy FAILED: {PR title}</strong></p>
+  <p><strong>Step:</strong> {git pull | link-addons | module update | restart}</p>
+  <p>{last error lines, HTML-escaped and joined with <br>}</p>
+  <p>Prod may be in a partial state and needs a manual look.</p>
   ```
   **Never** post success on a non-zero exit. Show the user the full output too.
 '' else ''
@@ -387,15 +395,15 @@ delta is one hour of real traffic on the new code.
 
 ${lib.optionalString (config.statusMcp == "teams") ''
 - all PASS:
-  ```
-  🟢 **Post-deploy check — <PR title>**
-  Invariants verified 1h after deploy: <one line per check family, at baseline>.
+  ```html
+  <p>🟢 <strong>Post-deploy check: {PR title}</strong></p>
+  <p>Invariants verified 1h after deploy: {one line per check family, at baseline, HTML-escaped and joined with <br>}.</p>
   ```
 - any FAIL (or WARN worth the team's eyes):
-  ```
-  🔴 **Post-deploy check — <PR title>**
-  <the FAIL/WARN lines verbatim>
-  Investigating.
+  ```html
+  <p>🔴 <strong>Post-deploy check: {PR title}</strong></p>
+  <p>{the FAIL/WARN lines verbatim, HTML-escaped and joined with <br>}</p>
+  <p>Investigating.</p>
   ```
   …and show the user the full output.
 

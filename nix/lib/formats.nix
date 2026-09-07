@@ -114,9 +114,6 @@ in {
     mcpServers = {
       odoo = mcp "uvx --from 'git+https://github.com/okolovmark/odoo-fast-mcp@cb85a99' odoo-fast-mcp";
       postgres-mcp = mcp "uvx --with 'mcp<2' postgres-mcp --access-mode=unrestricted \"$DATABASE_URI\"";
-    } // lib.optionalAttrs (config.statusMcp == "teams") {
-      teams = { type = "stdio"; command = "npx";
-        args = [ "-y" "git+https://github.com/okolovmark/teams-mcp.git#stable" ]; };
     };
   };
   ".claude/settings.json" = json.generate "claude-settings.json" {

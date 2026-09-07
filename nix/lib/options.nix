@@ -75,7 +75,7 @@ in
     ticketPrefix = string "TASK" "Ticket key prefix.";
     readmeGenSource = string "git+https://github.com/OCA/maintainer-tools@master"
       "Source of the addon README generator.";
-    statusMcp = option (types.enum [ "none" "teams" ]) "none" "Team status integration.";
+    statusMcp = option (types.enum [ "none" "teams" ]) "none" "Team status skills; Teams uses the Microsoft 365 connector configured in Claude under Customize > Connectors.";
     ticketsMcp = option (types.enum [ "none" "odoo" ]) "none" "Ticket tracking integration.";
     odooProdUrl = string "" "Production Odoo URL for ticket tracking.";
     usePipeline = boolean (config.useClaudeCode && config.customRepoName != "")

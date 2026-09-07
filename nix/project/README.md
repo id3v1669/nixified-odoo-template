@@ -48,6 +48,15 @@ suffixed profiles.
 Deployment and new worktrees use the custom repository's configured branch.
 Worktree filestore seeding uses `PGDATABASE` from `.env` when set.
 
+### Teams status integration
+
+Set `statusMcp = "teams";` to generate Teams messaging and status skills. Connect
+Microsoft 365 in Claude under **Customize > Connectors**, enable the required
+write permissions, and confirm its tools are available in your Claude Code
+session. The project does not install a Teams MCP server. Messages use HTML;
+the connector workflow has no edit or delete tool, so review the recipient and
+draft before approving a send.
+
 ### Optional development shell
 
 After setup, run `nix develop` from the project root to use the project's

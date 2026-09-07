@@ -43,7 +43,7 @@ ${lib.optionalString (config.statusMcp == "teams" || config.ticketsMcp == "odoo"
    Odoo''}? Your Odoo (prod) login? Which Odoo project is your default board
    and which stage means 'in development${"'"}''}?${lib.optionalString (config.statusMcp == "teams") '' Which Teams chat should daily
    statuses go to?''}" → fill ALL placeholders in [[user_identity]] (resolve
-   ${lib.optionalString (config.statusMcp == "teams") ''the chatId via `mcp__teams__list_chats`''}${lib.optionalString (config.ticketsMcp == "odoo") ''${lib.optionalString (config.statusMcp == "teams") '', ''}the uid and project/stage ids
+   ${lib.optionalString (config.statusMcp == "teams") ''the chatId via `mcp__claude_ai_Microsoft_365__teams_list_chats`''}${lib.optionalString (config.ticketsMcp == "odoo") ''${lib.optionalString (config.statusMcp == "teams") '', ''}the uid and project/stage ids
    over prod RPC''}); integrations stay disabled until no placeholders remain.
 ''}
 

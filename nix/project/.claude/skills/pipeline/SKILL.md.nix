@@ -287,13 +287,13 @@ ${lib.optionalString (config.statusMcp == "teams") ''
    - **Send the Teams status — and treat it as a HARD GATE: do NOT start
      Phase 2 until the status is actually sent.** Run the `my-status` `send`
      flow (current ticket + ETA + next up, draft → explicit user go → IT team
-     chat). **If Teams is not authenticated** (`mcp__teams__auth_status` is not
-     the identity-node account, or the send errors on auth): **PAUSE the
-     pipeline here.** Show the ready-to-send draft and **run the re-auth
-     yourself** — see the `teams-message` skill, Send step 1; never hand the
-     command to the user, only the passkey prompt in their browser is theirs.
-     Then re-check `auth_status`, send the status, and
-     only **after the send succeeds** proceed to Phase 2. The stage move + the
+     chat). **If Teams is not reachable**
+     (`mcp__claude_ai_Microsoft_365__get_me` is not the identity-node account,
+     or the send errors on auth): **PAUSE the pipeline here.** The Microsoft
+     365 connector's authentication is managed in claude.ai; there is no local
+     command to run. Show the draft and ask the user to reconnect the connector
+     under Customize → Connectors. Re-check `get_me`, send the status, and
+     proceed to Phase 2 only **after the send succeeds**. The stage move + the
      *sent* status are a mandatory pair — an unsent status blocks the run.
 ''}
 
@@ -411,8 +411,10 @@ ${lib.optionalString (config.statusMcp == "teams") ''
 1. **Send the Teams status — HARD GATE: do NOT start Phase 2 until the status
    is actually sent.** Run the `my-status` `send` flow (current task + ETA +
    next up, draft → explicit user go → the identity node's status chat). If
-   Teams is not authenticated: PAUSE, show the draft, run the re-auth yourself
-   (`teams-message` skill, Send step 1), then send and only after that proceed.
+   Teams is not authenticated: PAUSE, show the draft, and ask the user to
+   reconnect Microsoft 365 in Claude under Customize → Connectors
+   (`teams-message` skill, Send step 1). Re-check `get_me`, then send and only
+   after that proceed.
 ''}
 ''}
 
