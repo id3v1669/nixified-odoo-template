@@ -15,7 +15,7 @@ import tomllib
 from dependencies import plan_metadata
 from transaction import (ConflictError, FileEdit, MANIFEST, apply_update, checked_path,
                          canonical_mode, load_manifest, matches, prepare_update, read_json,
-                         read_state, recover, validate_path, RESERVED)
+                         read_state, recover)
 
 
 class CommandError(ValueError):
@@ -277,158 +277,6 @@ def refresh_project(arguments, framework_reference, system):
     return 0
 
 
-def migrate_project(arguments, framework_reference, system):
-    from migrate import SECRET_PATH, import_answers, import_customizations, parse_yaml, validate_preserve
-
-    project = arguments.project.absolute()
-    if Path(run(['git', '-C', project, 'rev-parse', '--show-toplevel']).strip()).resolve() != project.resolve():
-        raise ValueError('migration requires a Git repository rooted at the project directory')
-    if read_state(project, MANIFEST) is not None:
-        raise ValueError('project already has a generator manifest; use update or refresh-config')
-    tracked = set(run(['git', 'ls-files', '-z'], cwd=project).split('\0'))
-    private_tracked = [name for name in tracked if any(name == root or name.startswith(root + '/') for root in RESERVED)]
-    if private_tracked:
-        raise ConflictError(private_tracked, 'runtime files are tracked by Git; untrack them before migration')
-    answers = validate_path(arguments.answers or '.copier-answers.yml')
-    answer_state, config_state = read_state(project, answers), read_state(project, 'config.nix')
-    if answer_state and config_state and not arguments.answers:
-        raise ValueError('both legacy answers and config.nix exist; select the answers explicitly with --answers')
-    originals = {}
-    for name, state in ((answers, answer_state), ('config.nix', config_state)):
-        if state:
-            originals[name] = ((project / name).read_bytes(), state)
-    if answer_state:
-        values = parse_yaml(originals[answers][0].decode())
-    elif config_state:
-        try:
-            values = json.loads(run(['nix-instantiate', '--eval', '--strict', '--json',
-                                     Path(__file__).parent / 'legacy-config.nix',
-                                     '--argstr', 'configFile', project / 'config.nix']))
-        except CommandError as error:
-            raise ValueError('cannot evaluate legacy config.nix; review its syntax and imports') from error
-    else:
-        raise ValueError('no legacy answers or config.nix found')
-    settings, secret = import_answers(values)
-    settings, imported = import_customizations(project, settings)
-    preserved = {validate_preserve(path) for path in arguments.preserve}
-    if preserved & {answers, 'config.nix'}:
-        raise ValueError('legacy settings must be converted and backed up, not preserved in the active project')
-    managed = set(arguments.manage)
-    if managed - imported.keys() or managed & preserved:
-        raise ValueError('--manage must select imported settings files that are not also preserved')
-    if secret:
-        for name in ('CLAUDE.md', '.claude/project-context.md'):
-            if read_state(project, name) and secret.rstrip(b'\n') in (project / name).read_bytes():
-                raise ConflictError([name], 'remove the legacy credential from project instructions before migration')
-    with tempfile.TemporaryDirectory(prefix='nixodoo-migrate-') as temporary:
-        temporary = Path(temporary)
-        config = temporary / 'config.nix'
-        config.write_text(nix_value(settings) + '\n')
-        with framework_source(framework_reference) as (framework, provenance):
-            if os.environ.get('NIXODOO_PROVENANCE'):
-                provenance = json.loads(os.environ['NIXODOO_PROVENANCE'])
-            evaluate_config(framework, config, system)
-            candidate = build(framework, config, provenance, system)
-            desired = read_json(candidate / 'manifest.json')
-            adoption = dict(desired, files={}, ownershipOverrides={})
-            edits = []
-
-            def adopt(name, state, owner='managed'):
-                if state:
-                    adoption['files'][name] = dict(state, mode=canonical_mode(state['mode']), ownership=owner)
-                if owner == 'seed':
-                    adoption['ownershipOverrides'][name] = 'seed'
-
-            def private_write(name, data):
-                state = read_state(project, name)
-                if state:
-                    if (project / name).read_bytes() != data:
-                        raise ConflictError([name], 'existing migration backup differs; review and move that backup aside before retrying')
-                    if state['mode'] == 0o600:
-                        return
-                edits.append(FileEdit(name, data, state['sha256'] if state else None,
-                                      state['mode'] if state else None, mode=0o600, private=True))
-
-            for name, (data, state) in originals.items():
-                adopt(name, state, 'seed' if name == 'config.nix' else 'managed')
-                private_write('.nixodoo/migration-backup/' + name, data)
-            edits.append(metadata_edit('config.nix', config.read_bytes(), config_state))
-            if secret:
-                existing = read_state(project, SECRET_PATH)
-                private_write(SECRET_PATH, (project / SECRET_PATH).read_bytes() if existing else secret)
-            for name, state in imported.items():
-                if name not in desired['files']:
-                    raise ConflictError([name], 'imported customization is disabled by the selected project options')
-                adopt(name, state, 'managed' if name in managed else 'seed')
-            for name in preserved:
-                adopt(name, read_state(project, name), 'seed')
-            ignore_state = read_state(project, '.gitignore')
-            ignore = (project / '.gitignore').read_bytes() if ignore_state else b''
-            required_ignore = (candidate / 'tree/.gitignore').read_bytes()
-            merged_ignore = ignore.rstrip(b'\n') + b'\n' + required_ignore
-            adopt('.gitignore', ignore_state, 'seed')
-            edits.append(metadata_edit('.gitignore', merged_ignore, ignore_state))
-            if arguments.baseline:
-                baseline = arguments.baseline.absolute()
-                for path in baseline.rglob('*'):
-                    name = path.relative_to(baseline).as_posix()
-                    if not path.is_file() and not path.is_symlink():
-                        continue
-                    try:
-                        validate_path(name)
-                    except ValueError:
-                        continue
-                    declaration = desired['files'].get(name, {})
-                    is_code = name.startswith('nix/') or name in ('flake.nix', 'flake.lock')
-                    is_claude = name.startswith('.claude/') and not name.startswith('.claude/memory-template/')
-                    if (name in adoption['files'] or declaration.get('ownership') == 'seed'
-                            or not (is_code or is_claude)):
-                        continue
-                    state = read_state(project, name)
-                    baseline_state = read_state(baseline, name)
-                    if baseline_state is not None and matches(
-                            state, dict(baseline_state, mode=canonical_mode(baseline_state['mode']))):
-                        adopt(name, state)
-            unknown = []
-            for path in (project / 'nix').rglob('*'):
-                name = path.relative_to(project).as_posix()
-                if (path.is_dir() and not path.is_symlink()) or '__pycache__' in path.parts or path.suffix == '.pyc':
-                    continue
-                if name not in desired['files'] and name not in adoption['files']:
-                    unknown.append(name)
-            if unknown:
-                raise ConflictError(unknown, 'unrecognized framework files require review')
-            metadata_state = read_state(project, 'pyproject.toml')
-            generated_metadata = (candidate / 'tree/pyproject.toml').read_text()
-            metadata = (project / 'pyproject.toml').read_text() if metadata_state else generated_metadata
-            proposed = plan_metadata(metadata, generated_metadata)
-            lock_state = read_state(project, 'uv.lock')
-            if lock_state is None:
-                workspace = temporary / 'dependencies'
-                workspace.mkdir()
-                (workspace / 'pyproject.toml').write_text(proposed)
-                tools = build(framework, config, provenance, system, 'tools')
-                lock_dependencies(workspace, tools)
-                edits.append(metadata_edit('uv.lock', (workspace / 'uv.lock').read_bytes(), None))
-            edits.append(metadata_edit('pyproject.toml', proposed.encode(), metadata_state))
-            operations, result_manifest = prepare_update(project, candidate, adoption=adoption, edits=edits)
-            report_preserved(project, candidate, result_manifest, operations)
-            print(f'Candidate for review: {candidate}/tree')
-            for operation in operations:
-                print(f'{operation.action}: {operation.path}')
-            if arguments.check:
-                return 1
-            apply_update(project, candidate, adoption=adoption, edits=edits)
-            tracked = set(run(['git', 'ls-files', '-z'], cwd=project).split('\0'))
-            changed = [operation.path for operation in operations
-                       if not operation.path.startswith(('.nixodoo/secrets/', '.nixodoo/migration-backup/'))
-                       and (operation.action != 'delete' or operation.path in tracked)]
-            changed = sorted(set(changed) | {name for name in result_manifest['files'] if (project / name).is_file()})
-            run(['git', 'add', '-f', '-A', '--', *changed, MANIFEST], cwd=project)
-    print('Migration complete. Review the staged files before committing.')
-    return 0
-
-
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest='command', required=True)
@@ -443,14 +291,6 @@ def parser():
         if name == 'update':
             command.add_argument('--from', dest='source')
     commands.add_parser('recover', help='restore files from an interrupted update')
-    migration = commands.add_parser('migrate', help='import a legacy project with explicit file ownership')
-    migration.add_argument('project', type=Path)
-    migration.add_argument('--check', action='store_true')
-    migration.add_argument('--answers', help='relative path to the legacy YAML answers')
-    migration.add_argument('--preserve', action='append', default=[], metavar='PATH')
-    migration.add_argument('--manage', action='append', default=[], metavar='PATH',
-                           help='replace an imported settings file with its Nix-generated form')
-    migration.add_argument('--baseline', type=Path, help='pristine legacy project used to verify unchanged framework files')
     return result
 
 
@@ -467,8 +307,6 @@ def main(argv=None):
             recover(Path.cwd())
             print('Recovery complete.')
             return 0
-        if arguments.command == 'migrate':
-            return migrate_project(arguments, framework, system)
         return refresh_project(arguments, framework, system)
     except (OSError, ValueError, ConflictError) as error:
         print(f'error: {error}', file=sys.stderr)

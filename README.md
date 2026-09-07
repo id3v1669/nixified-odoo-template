@@ -2,7 +2,7 @@
 
 Generate Odoo projects from a typed `config.nix`. Nix expressions define the
 project files, defaults, packages, and Linux service scripts. A small Python CLI
-handles Git initialization, dependency locks, migration, and filesystem updates.
+handles Git initialization, dependency locks, and filesystem updates.
 The generator does not use Jinja, Copier, flake-utils, or flake-parts.
 
 Projects use nixpkgs 26.05 and support Odoo 17 through 19, Python 3.11 through
@@ -147,55 +147,8 @@ An existing `.env` takes precedence because `create-env` leaves it intact. When
 creating one, the password entered at the prompt overrides `dbPasswordFile`;
 without either, the development default is `odoo`. Store credentials locally
 with owner-only permissions. Never put a password in `config.nix`: Nix copies
-configuration into its store. Migration backups and `.nixodoo/secrets/` are
-ignored by Git and excluded from generated manifests.
-
-## Migrate an existing project
-
-This release drops Odoo 16, Python 3.10, and PostgreSQL 13. Existing projects
-selecting those versions are rejected before generator updates or migration
-write files. Keep them on an earlier generator revision until their application,
-interpreter, or database migration is complete. Changing `odooVersion` alone
-does not migrate an Odoo database. Supported defaults remain Python 3.11 and
-PostgreSQL 15 for Odoo 17, and Python 3.12 and PostgreSQL 17 for Odoo 18/19.
-
-Keep a local backup and inspect the project's Git status first. The migration
-requires a Git repository rooted at the project directory. Untrack any runtime
-files before migration. Run the new generator from this framework checkout,
-so an old project flake does not copy legacy passwords into the Nix store:
-
-```bash
-nix run .#migrate -- /path/to/project --check
-nix run .#migrate -- /path/to/project
-```
-
-Migration accepts Copier answers or the partial generator's `config.nix`.
-It converts known settings, preserves explicit version choices, and rejects
-unknown options. If both files exist, select the answers with
-`--answers .copier-answers.yml`. Legacy settings are backed up under the ignored
-`.nixodoo/migration-backup/` directory with owner-only permissions. A non-default plaintext
-password moves to a local credential file when no password file is already
-configured. Existing runtime credentials remain.
-Remove credentials from project instructions if the migration reports them.
-
-Existing framework files need ownership evidence before replacement. Supply
-`--baseline /path/to/pristine-project` to compare against a clean generation of
-the project's original template revision and answers. Only identical bytes and
-modes qualify. A baseline is a comparison directory, not another project to
-update. Edited or unrecognized framework code requires manual review.
-
-Repository YAML and editor settings are imported into `config.nix`; their
-original bytes and comments remain project-owned by default. Use repeated
-`--manage PATH` arguments to explicitly replace selected imported files with
-Nix-generated output. Use repeated `--preserve PATH` arguments for local
-instructions or other project content. Framework code and active legacy
-settings cannot be preserved this way. Unsupported repository merge instructions
-are reported instead of discarded.
-
-Migration prints the candidate path and stages the resulting project files.
-Review the staged diff before committing. It does not start services, restore
-backups, or commit changes. File writes share the update transaction and recovery
-mechanism; Git staging follows the file transaction.
+configuration into its store. `.nixodoo/secrets/` is ignored by Git and excluded
+from generated manifests.
 
 ## Check the generator
 

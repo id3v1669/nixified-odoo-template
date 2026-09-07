@@ -198,7 +198,7 @@ class TransactionTests(unittest.TestCase):
         original = json.loads((self.new / 'manifest.json').read_text())
         for name in ('../outside', '/absolute', 'a//b', './file', '.env', '.postgres/data',
                      '.git/config', '.nixodoo/manifest.json', '.nixodoo/transaction/x',
-                     '.nixodoo/migration-backup/x', 'src/module.py'):
+                     '.nixodoo/migration-backup/x', '.nixodoo/secrets/password', 'src/module.py'):
             with self.subTest(path=name):
                 manifest = dict(original, files={name: entry(b'bad')})
                 (self.new / 'manifest.json').write_text(json.dumps(manifest))
@@ -412,35 +412,6 @@ transaction.apply_update(transaction.Path(sys.argv[2]),transaction.Path(sys.argv
         with self.assertRaises(transaction.ConflictError):
             transaction.apply_update(self.project, self.new, edits=[edit])
         self.assertEqual(self.snapshot(), before)
-
-    def test_migration_adoption_and_private_writes_share_rollback(self):
-        (self.project / '.nixodoo/manifest.json').unlink()
-        adoption = json.loads((self.old / 'manifest.json').read_text())
-        secret = transaction.FileEdit('.nixodoo/secrets/db-password', b'private value', None, None,
-                                      mode=0o600, private=True)
-        before = self.snapshot()
-        original = os.replace
-        failed = False
-
-        def fail_manifest(source, destination, *args, **kwargs):
-            nonlocal failed
-            if Path(destination) == self.project / '.nixodoo/manifest.json' and not failed:
-                failed = True
-                raise OSError('migration interrupted')
-            return original(source, destination, *args, **kwargs)
-
-        with patch.object(transaction.os, 'replace', side_effect=fail_manifest):
-            with self.assertRaises(OSError):
-                transaction.apply_update(self.project, self.new, adoption=adoption, edits=[secret])
-        self.assertEqual(self.snapshot(), before)
-        transaction.apply_update(self.project, self.new, adoption=adoption, edits=[secret])
-        self.assertEqual((self.project / secret.path).stat().st_mode & 0o777, 0o600)
-        manifest = json.loads((self.project / '.nixodoo/manifest.json').read_text())
-        self.assertNotIn(secret.path, manifest['files'])
-        self.assertNotIn('private value', json.dumps(manifest))
-        with self.assertRaises(ValueError):
-            transaction.apply_update(self.project, self.new, adoption=adoption)
-
 
 if __name__ == '__main__':
     unittest.main()

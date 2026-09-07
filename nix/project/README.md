@@ -78,7 +78,7 @@ and `addons.yaml`. Run `nix run .#update-repos` to apply checkout changes.
 
 Use Conventional Commits for project and addon changes.
 
-## Credentials and migration
+## Credentials
 
 Keep credentials in ignored local files. An existing `.env` remains unchanged.
 When creating it, a password entered at the prompt overrides `dbPasswordFile`;
@@ -89,11 +89,3 @@ Odoo 16, Python 3.10, and PostgreSQL 13 are no longer supported. Projects
 using those versions need a separate application, interpreter, or database migration before
 updating their generator; changing the version in configuration alone does not
 migrate a database.
-
-Legacy migration uses the framework's `migrate` command from outside the old
-project. It requires a Git repository, imports known settings, and backs up
-legacy configuration locally with owner-only permissions. Imported repository
-and editor files retain their original bytes unless selected with `--manage`.
-Use `--baseline` to prove unchanged legacy framework files and `--preserve` for
-project-owned content. Preview with `--check`, then review the staged result
-before committing. The framework README describes the full migration workflow.

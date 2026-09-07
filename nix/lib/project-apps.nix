@@ -1,6 +1,6 @@
 { pkgs, frameworkRoot, system }:
 let
-  python = pkgs.python3.withPackages (p: [ p.tomlkit p.pyyaml p.packaging ]);
+  python = pkgs.python3.withPackages (p: [ p.tomlkit p.packaging ]);
   provenance = if frameworkRoot ? rev then {
     kind = "git";
     revision = frameworkRoot.rev;
@@ -9,7 +9,7 @@ let
     kind = "local";
     narHash = frameworkRoot.narHash;
   };
-  commands = [ "init" "update" "refresh-config" "refresh-deps" "recover" "migrate" ];
+  commands = [ "init" "update" "refresh-config" "refresh-deps" "recover" ];
   packages = builtins.listToAttrs (map (name: {
     inherit name;
     value = pkgs.writeShellApplication {

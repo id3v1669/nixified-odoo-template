@@ -1,4 +1,4 @@
-"""Exercise migrated hooks and worktree helpers in disposable projects."""
+"""Exercise generated hooks and worktree helpers in disposable projects."""
 
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

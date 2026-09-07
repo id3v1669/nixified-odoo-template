@@ -56,6 +56,21 @@ class CliTests(unittest.TestCase):
         manifest = json.loads((self.project / '.nixodoo/manifest.json').read_text())
         self.assertEqual(manifest['files']['uv.lock']['ownership'], 'seed')
         self.assertEqual(manifest['provenance']['kind'], 'local')
+        for directory in (ROOT, self.project):
+            apps = subprocess.run(['nix', 'eval', '--json', '.#apps.x86_64-linux',
+                                   '--apply', 'builtins.attrNames'], cwd=directory,
+                                  capture_output=True, text=True, check=True)
+            self.assertNotIn('migrate', json.loads(apps.stdout))
+
+    def test_legacy_migration_command_is_rejected_without_writes(self):
+        self.project.mkdir()
+        answers = self.project / '.copier-answers.yml'
+        answers.write_text('project_name: legacy\n')
+        result = self.run_cli('migrate', self.project)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('invalid choice', result.stderr)
+        self.assertEqual(list(self.project.iterdir()), [answers])
+        self.assertEqual(answers.read_text(), 'project_name: legacy\n')
 
     def test_git_is_required_and_nonempty_target_is_refused(self):
         self.init()
