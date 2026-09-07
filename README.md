@@ -59,8 +59,13 @@ Claude tooling.
 
 `dev-server`, `test-server`, and `prod-server` provide the Odoo interpreter and
 runtime tools. Development adds repository, lint, and PostgreSQL helpers.
-When `serviceSuffix` is nonempty, install with
-`nix profile add --profile ~/.local/state/nix/profiles/PROJECT_NAME .#dev-server`.
+When `serviceSuffix` is nonempty, create the profile directory before installing:
+
+```bash
+mkdir -p ~/.local/state/nix/profiles
+nix profile add --profile ~/.local/state/nix/profiles/PROJECT_NAME .#dev-server
+```
+
 Use the configured `projectName` in the profile path. Setup also prepares the
 editor debugger environment and prints service activation instructions.
 

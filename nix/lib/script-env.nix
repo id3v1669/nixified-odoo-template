@@ -14,7 +14,7 @@ config:
   PYTHON_VERSION = config.python;
   SERVICE_SUFFIX = config.serviceSuffix;
   NIX_PROFILE_REL = config.derived.nixProfileRel;
-  NIX_PROFILE_FLAG = config.derived.nixProfileFlag;
+  NIX_PROFILE_INSTALL = config.derived.nixProfileInstall;
   ODOO_CMD = config.derived.odooCmd;
   ODOO_HTTP_PORT = config.ports.http;
   ODOO_GEVENT_PORT = config.ports.gevent;

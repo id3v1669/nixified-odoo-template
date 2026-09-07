@@ -49,6 +49,26 @@ class RuntimeTests(unittest.TestCase):
         }
         (self.project / ".env").write_text("".join(f"{k}={shlex.quote(v)}\n" for k, v in values.items()))
 
+    def test_bootstrap_prints_install_hint_for_selected_profile(self):
+        source = self.project / "src/odoo"
+        source.mkdir(parents=True)
+        (source / "requirements.txt").write_text("")
+        tools = self.project / "tools"
+        tools.mkdir()
+        uv = tools / "uv"
+        uv.write_text("#!/bin/sh\nexit 0\n")
+        uv.chmod(0o755)
+        for suffix, expected in (
+            ("", "nix profile add .#dev-server"),
+            ("-test", "mkdir -p ~/.local/state/nix/profiles && "
+             "nix profile add --profile ~/.local/state/nix/profiles/test-project .#dev-server"),
+        ):
+            with self.subTest(suffix=suffix):
+                executable = self.build("bootstrap-deps", {"serviceSuffix": suffix})
+                result = self.run_script(executable, env={"PATH": str(tools) + os.pathsep + os.environ["PATH"]})
+                hint = result.stdout.split("Python dependencies locked. Next:\n", 1)[1].strip()
+                self.assertEqual(hint, expected + "    # or prod-server / test-server")
+
     def test_wrapper_preserves_arguments_and_dev_flags(self):
         source = self.project / "src/odoo"
         source.mkdir(parents=True)

@@ -18,8 +18,13 @@ nix profile add .#dev-server
 nix run .#setup-dev
 ```
 
-When `serviceSuffix` is set, install the profile with
-`nix profile add --profile ~/.local/state/nix/profiles/PROJECT_NAME .#dev-server`.
+When `serviceSuffix` is nonempty, create the profile directory before installing:
+
+```bash
+mkdir -p ~/.local/state/nix/profiles
+nix profile add --profile ~/.local/state/nix/profiles/PROJECT_NAME .#dev-server
+```
+
 Use the `projectName` from `config.nix` in place of `PROJECT_NAME`.
 Production and test profiles are available as `.#prod-server` and `.#test-server`.
 

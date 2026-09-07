@@ -126,7 +126,8 @@ in
     derived = {
       odooMajor = major;
       nixProfileRel = profile;
-      nixProfileFlag = if config.serviceSuffix == "" then "" else "--profile ~/${profile} ";
+      nixProfileInstall = if config.serviceSuffix == "" then "nix profile add .#dev-server"
+        else "mkdir -p ~/${builtins.dirOf profile} && nix profile add --profile ~/${profile} .#dev-server";
       odooCmd = if config.serviceSuffix == "" then "odoo" else "~/${profile}/bin/odoo";
       odooService = "odoo${config.serviceSuffix}.service";
       withBackup = config.backupS3Bucket != "";

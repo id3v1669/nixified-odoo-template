@@ -16,4 +16,4 @@ uv add --no-sync -r src/odoo/requirements.txt
 uv lock
 echo
 echo "Python dependencies locked. Next:"
-echo "  nix profile add ${NIX_PROFILE_FLAG}.#dev-server    # or prod-server / test-server"
+echo "  ${NIX_PROFILE_INSTALL}    # or prod-server / test-server"
