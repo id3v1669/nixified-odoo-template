@@ -520,6 +520,22 @@ print(json.dumps({
                 self.assertNotIn('update: .nixodoo/manifest.json', checked.stdout)
                 self.assertEqual(manifest.read_bytes(), before)
 
+    def test_refresh_rejects_manifest_without_configuration(self):
+        self.init()
+        manifest = self.project / '.nixodoo/manifest.json'
+        data = json.loads(manifest.read_text())
+        del data['config']
+        manifest.write_text(json.dumps(data))
+        before = {name: (self.project / name).read_bytes()
+                  for name in ('config.nix', 'pyproject.toml', 'uv.lock', '.nixodoo/manifest.json')}
+        result = self.run_cli('refresh-config', '--check', cwd=self.project)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('error: missing normalized configuration', result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+        for name, content in before.items():
+            self.assertEqual((self.project / name).read_bytes(), content)
+        self.assertFalse((self.project / '.nixodoo/transaction').exists())
+
     def test_init_preserves_provenance_supplied_by_the_nix_app(self):
         cli = load_cli()
         provenance = {'kind': 'git', 'revision': '1' * 40, 'narHash': 'sha256-' + 'A' * 43 + '='}

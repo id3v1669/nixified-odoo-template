@@ -360,6 +360,19 @@ with (Path(sys.argv[1])/'.nixodoo/lock').open('a') as lock:
         self.assertEqual((fresh / 'bin/run').stat().st_mode & 0o777, 0o755)
         self.assertEqual(transaction.plan_update(fresh, candidate), [])
 
+    def test_manifest_requires_configuration_object(self):
+        original = json.loads((self.new / 'manifest.json').read_text())
+        for kind, value in (('missing', None), ('null', None), ('list', []),
+                            ('string', 'invalid'), ('number', 1), ('boolean', False)):
+            with self.subTest(kind=kind):
+                manifest = dict(original)
+                if kind == 'missing':
+                    manifest.pop('config')
+                else:
+                    manifest['config'] = value
+                with self.assertRaisesRegex(ValueError, 'missing normalized configuration'):
+                    transaction.validate_manifest(manifest)
+
     def test_invalid_old_manifest_and_symlink_metadata_are_rejected(self):
         manifest = self.project / '.nixodoo/manifest.json'
         original = manifest.read_bytes()

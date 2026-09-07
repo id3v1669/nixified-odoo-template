@@ -131,6 +131,8 @@ def validate_manifest(manifest):
         raise ValueError('invalid configuration digest')
     if not isinstance(manifest.get('provenance'), dict):
         raise ValueError('missing framework provenance')
+    if not isinstance(manifest.get('config'), dict):
+        raise ValueError('missing normalized configuration')
     return manifest
 
 
