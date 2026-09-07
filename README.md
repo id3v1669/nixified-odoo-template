@@ -160,6 +160,11 @@ with owner-only permissions. Never put a password in `config.nix`: Nix copies
 configuration into its store. `.nixodoo/secrets/` is ignored by Git and excluded
 from generated manifests.
 
+If a configured `dbPasswordFile` is missing or unreadable, `create-env` requires
+a nonempty password at the prompt. `setup-postgres` and worktree commands fail
+unless a nonempty `PGPASSWORD` is available from `.env` or the environment.
+Relative password-file paths are resolved from the project root.
+
 ## Check the generator
 
 ```bash

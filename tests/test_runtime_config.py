@@ -144,6 +144,73 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(unquote(connection.password), sentinel)
         self.assertEqual(connection.hostname, "localhost")
 
+    def test_missing_secret_requires_prompt_password(self):
+        exe = self.build("create-env", {"dbPasswordFile": "missing-password"})
+        result = self.run_script(exe, stdin="\n" * 4 + "entered-password\n" + "\n" * 5)
+        self.assertIn("missing or unreadable", result.stderr)
+        self.assertIn("Password must not be empty", result.stderr)
+        probe = subprocess.run(["bash", "-c", 'source .env; printf "%s" "$PGPASSWORD"'],
+                               cwd=self.project, capture_output=True, text=True, check=True)
+        self.assertEqual(probe.stdout, "entered-password")
+        self.assertEqual((self.project / ".env").stat().st_mode & 0o777, 0o600)
+
+    def test_unavailable_secret_and_prompt_eof_leave_no_env(self):
+        secret = self.project / "password-directory"
+        secret.mkdir()
+        for path in ("missing-password", secret.name):
+            with self.subTest(path=path):
+                exe = self.build("create-env", {"dbPasswordFile": path})
+                result = subprocess.run([str(exe)], cwd=self.project, input="\n" * 3,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("missing or unreadable", result.stderr)
+                self.assertIn("No password entered", result.stderr)
+                self.assertFalse((self.project / ".env").exists())
+
+    def test_postgres_rejects_unavailable_secret_before_initialization(self):
+        (self.project / "password-directory").mkdir()
+        for path in ("missing-password", "password-directory"):
+            with self.subTest(path=path):
+                exe = self.build("setup-postgres", {"dbPasswordFile": path})
+                result = subprocess.run([str(exe)], cwd=self.project,
+                                        env={**os.environ, "PGPASSWORD": "", "HOME": str(self.project)},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("missing or unreadable", result.stderr)
+                self.assertIn("PGPASSWORD", result.stderr)
+                self.assertFalse((self.project / ".postgres").exists())
+                self.assertFalse((self.project / ".config").exists())
+
+    def test_password_read_failure_uses_credential_diagnostic(self):
+        (self.project / "password").write_text("unused-password\n")
+        for name in ("create-env", "setup-postgres"):
+            with self.subTest(command=name):
+                exe = self.build(name, {"dbPasswordFile": "password"})
+                result = subprocess.run(
+                    ["bash", "-c", 'cat() { return 1; }; export -f cat; exec "$1"', "bash", str(exe)],
+                    cwd=self.project, env={**os.environ, "PGPASSWORD": "", "HOME": str(self.project)},
+                    input="\n" * 3, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("missing or unreadable", result.stderr)
+                if name == "create-env":
+                    self.assertIn("No password entered", result.stderr)
+                self.assertFalse((self.project / ".env").exists())
+                self.assertFalse((self.project / ".postgres").exists())
+
+    def test_postgres_env_password_overrides_missing_secret(self):
+        exe = self.build("setup-postgres", {"dbPasswordFile": "missing-password"})
+        self.write_env()
+        (self.project / ".postgres").mkdir()
+        tools = self.project / "tools"
+        tools.mkdir()
+        systemctl = tools / "systemctl"
+        systemctl.write_text("#!/bin/sh\nexit 0\n")
+        systemctl.chmod(0o755)
+        self.run_script(exe, env={"HOME": str(self.project), "POSTGRES_BIN": "/test/postgres",
+                                 "PATH": str(tools) + os.pathsep + os.environ["PATH"]})
+        unit = (self.project / ".config/systemd/user/postgres.service").read_text()
+        self.assertIn("Environment=PGPASSWORD=test-value", unit)
+
     def test_units_can_be_written_without_activation(self):
         exe = self.build("create-systemd-service", {"serviceSuffix": "-test"})
         destination = self.project / "units"

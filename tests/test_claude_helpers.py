@@ -181,6 +181,40 @@ class ClaudeHelperTests(unittest.TestCase):
         self.assertEqual(parser["options"]["server_wide_modules"], "base,web,queue_job")
         self.assertEqual(conf.stat().st_mode & 0o777, 0o600)
 
+    def test_worktree_secret_path_is_relative_to_project(self):
+        settings = self.project / ".nixodoo/env.sh"
+        with settings.open("a") as stream:
+            stream.write("\nexport DB_PASSWORD_FILE=secret\n")
+        (self.project / "secret").write_text("root-password\n")
+        child = self.project / "child"
+        child.mkdir()
+        (child / "secret").write_text("wrong-password\n")
+        environment = {key: value for key, value in os.environ.items()
+                       if key not in ("ODOO17_PROJECT_DIR", "PGPASSWORD")}
+        script = self.project / ".claude/skills/worktree-env/scripts/wt-config.sh"
+        result = subprocess.run([str(script), "task-one", "2769"], cwd=child,
+                                env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(self.project / ".worktrees/_env/task-one/odoo.conf")
+        self.assertEqual(parser["options"]["db_password"], "root-password")
+        (self.project / "secret").unlink()
+        for directory in (False, True):
+            with self.subTest(directory=directory):
+                if directory:
+                    (self.project / "secret").mkdir()
+                result = subprocess.run([str(script), "task-two", "2769"], cwd=child,
+                                        env=environment, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("missing or unreadable", result.stderr)
+                self.assertFalse((self.project / ".worktrees/_env/task-two").exists())
+        (self.project / ".env").write_text("PGPASSWORD=env-password\n")
+        result = subprocess.run([str(script), "task-three", "2769"], cwd=child,
+                                env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parser.read(self.project / ".worktrees/_env/task-three/odoo.conf")
+        self.assertEqual(parser["options"]["db_password"], "env-password")
+
     def test_remote_command_quotes_configured_paths(self):
         import shlex
         config_path = self.project / ".nixodoo/config.json"

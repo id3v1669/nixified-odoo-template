@@ -24,10 +24,17 @@ if [ -f "$PROJ/.env" ]; then
     set +a
 fi
 if [ -z "${PGPASSWORD:-}" ]; then
-    if [ -n "$DB_PASSWORD_FILE" ]; then
-        PGPASSWORD=$(cat "$DB_PASSWORD_FILE")
-    else
+    case "$DB_PASSWORD_FILE" in
+        ""|/*) PASSWORD_PATH="$DB_PASSWORD_FILE" ;;
+        *) PASSWORD_PATH="$PROJ/$DB_PASSWORD_FILE" ;;
+    esac
+    if [ -z "$PASSWORD_PATH" ]; then
         PGPASSWORD=odoo
+    elif [ -f "$PASSWORD_PATH" ] && [ -r "$PASSWORD_PATH" ] && PGPASSWORD=$(cat "$PASSWORD_PATH" 2>/dev/null); then
+        :
+    else
+        echo "ERROR: dbPasswordFile '$PASSWORD_PATH' is missing or unreadable; create a readable password file or set PGPASSWORD in .env." >&2
+        return 2
     fi
 fi
 export PGPASSWORD

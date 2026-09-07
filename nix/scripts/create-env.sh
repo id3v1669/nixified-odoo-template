@@ -4,8 +4,14 @@ set -e
 umask 077    # .env holds credentials: file 600
 if [ ! -f .env ]; then
     DB_PASSWORD=odoo
+    PASSWORD_REQUIRED=
     if [ -n "$DB_PASSWORD_FILE" ]; then
-        DB_PASSWORD=$(cat "$DB_PASSWORD_FILE")
+        if [ -f "$DB_PASSWORD_FILE" ] && [ -r "$DB_PASSWORD_FILE" ] && DB_PASSWORD=$(cat "$DB_PASSWORD_FILE" 2>/dev/null); then
+            :
+        else
+            echo "WARNING: dbPasswordFile '$DB_PASSWORD_FILE' is missing or unreadable; enter the password at the prompt." >&2
+            PASSWORD_REQUIRED=1
+        fi
     fi
     echo ".env file not found. Let's create one!"
     echo
@@ -19,9 +25,25 @@ if [ ! -f .env ]; then
     read -r -p "PostgreSQL user (default: $DB_USER): " pguser
     pguser=${pguser:-$DB_USER}
 
-    read -r -s -p "PostgreSQL password (Enter to use the configured default): " pgpassword
-    pgpassword=${pgpassword:-$DB_PASSWORD}
-    echo
+    while true; do
+        if [ -n "$PASSWORD_REQUIRED" ]; then
+            password_prompt="PostgreSQL password (required): "
+        else
+            password_prompt="PostgreSQL password (Enter to use the configured default): "
+        fi
+        if ! read -r -s -p "$password_prompt" pgpassword; then
+            echo >&2
+            echo "ERROR: No password entered; .env was not created." >&2
+            exit 1
+        fi
+        echo
+        if [ -n "$PASSWORD_REQUIRED" ] && [ -z "$pgpassword" ]; then
+            echo "Password must not be empty." >&2
+            continue
+        fi
+        pgpassword=${pgpassword:-$DB_PASSWORD}
+        break
+    done
 
     read -r -p "PostgreSQL database name (default: $DB_NAME): " pgdatabase
     pgdatabase=${pgdatabase:-$DB_NAME}

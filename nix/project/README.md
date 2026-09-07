@@ -94,6 +94,11 @@ When creating it, a password entered at the prompt overrides `dbPasswordFile`;
 without either, the development default is `odoo`. Configuration stores only
 credential paths because Nix copies `config.nix` into its store.
 
+If a configured `dbPasswordFile` is missing or unreadable, `create-env` requires
+a nonempty password at the prompt. `setup-postgres` and worktree commands fail
+unless a nonempty `PGPASSWORD` is available from `.env` or the environment.
+Relative password-file paths are resolved from the project root.
+
 Odoo 16, Python 3.10, and PostgreSQL 13 are no longer supported. Projects
 using those versions need a separate application, interpreter, or database migration before
 updating their generator; changing the version in configuration alone does not

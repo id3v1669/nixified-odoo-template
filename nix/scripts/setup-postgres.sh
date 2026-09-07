@@ -17,10 +17,13 @@ export PGHOST="$PWD/.postgres"
 export PGPORT="${PGPORT:-$POSTGRES_PORT}"
 export PGUSER="${PGUSER:-$DB_USER}"
 if [ -z "${PGPASSWORD:-}" ]; then
-    if [ -n "$DB_PASSWORD_FILE" ]; then
-        PGPASSWORD=$(cat "$DB_PASSWORD_FILE")
-    else
+    if [ -z "$DB_PASSWORD_FILE" ]; then
         PGPASSWORD=odoo
+    elif [ -f "$DB_PASSWORD_FILE" ] && [ -r "$DB_PASSWORD_FILE" ] && PGPASSWORD=$(cat "$DB_PASSWORD_FILE" 2>/dev/null); then
+        :
+    else
+        echo "ERROR: dbPasswordFile '$DB_PASSWORD_FILE' is missing or unreadable; create a readable password file or set PGPASSWORD in .env." >&2
+        exit 1
     fi
 fi
 export PGPASSWORD
