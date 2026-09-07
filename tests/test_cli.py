@@ -80,6 +80,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertEqual((self.project / 'config.nix').read_bytes(), before)
 
+    def test_init_and_refresh_through_symlinked_parent(self):
+        alias = self.root / 'alias'
+        alias.symlink_to(self.root, target_is_directory=True)
+        destination = alias / self.project.name
+        result = self.run_cli('init', destination, '--config', self.config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'Created {destination}', result.stdout)
+        self.assertTrue((self.project / '.git').is_dir())
+        for args in (('refresh-config', '--check'), ('refresh-deps', '--check'),
+                     ('update', '--from', ROOT, '--check')):
+            refreshed = self.run_cli(*args, cwd=destination)
+            self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+
+    def test_init_rejects_symlink_at_destination(self):
+        actual = self.root / 'actual'
+        actual.mkdir()
+        self.project.symlink_to(actual, target_is_directory=True)
+        result = self.run_cli('init', self.project, '--config', self.config)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('unsafe file or parent', result.stderr)
+        self.assertEqual(list(actual.iterdir()), [])
+
     def test_refresh_commands_accept_git_checkout_umasks(self):
         self.init()
         for mask, regular, executable in ((0o002, 0o664, 0o775), (0o077, 0o600, 0o700)):
@@ -359,6 +381,34 @@ print(json.dumps({
         self.assertTrue(edited)
         for name in ('pyproject.toml', 'uv.lock'):
             self.assertIn('# concurrent user edit', (self.project / name).read_text())
+
+    def test_dependency_preparation_rejects_project_root_substitution(self):
+        self.init()
+        cli = load_cli()
+        original = cli.lock_dependencies
+        moved = self.root / 'moved-project'
+        before = {name: (self.project / name).read_bytes()
+                  for name in ('config.nix', 'pyproject.toml', 'uv.lock', '.nixodoo/manifest.json')}
+
+        def substitute_after_resolution(*args, **kwargs):
+            original(*args, **kwargs)
+            self.project.rename(moved)
+            self.project.symlink_to(moved, target_is_directory=True)
+
+        previous = Path.cwd()
+        try:
+            os.chdir(self.project)
+            with patch.object(cli, 'lock_dependencies', side_effect=substitute_after_resolution), patch.dict(
+                    os.environ, {'NIXODOO_SYSTEM': 'x86_64-linux'}):
+                self.assertEqual(cli.main(['refresh-deps']), 2)
+        finally:
+            os.chdir(previous)
+            if self.project.is_symlink():
+                self.project.unlink()
+                moved.rename(self.project)
+        for name, data in before.items():
+            self.assertEqual((self.project / name).read_bytes(), data)
+        self.assertFalse((self.project / '.nixodoo/transaction').exists())
 
     def test_git_flake_source_excludes_runtime_credentials(self):
         self.init()

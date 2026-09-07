@@ -13,9 +13,9 @@ import tempfile
 import tomllib
 
 from dependencies import plan_metadata
-from transaction import (ConflictError, FileEdit, MANIFEST, apply_update, checked_path,
-                         canonical_mode, load_manifest, matches, prepare_update, read_json,
-                         read_state, recover)
+from transaction import (ConflictError, FileEdit, MANIFEST, apply_resolved_update, checked_path,
+                         canonical_mode, load_manifest, matches, prepare_resolved_update, read_json,
+                         read_state, recover, resolve_root)
 
 
 class CommandError(ValueError):
@@ -69,7 +69,7 @@ def copy_regular(source, destination):
 def local_source(reference):
     value = reference.removeprefix('path:')
     if reference.startswith('path:') or Path(value).exists():
-        return Path(value).absolute()
+        return resolve_root(value)
     return None
 
 
@@ -78,7 +78,7 @@ def framework_source(reference):
     local = local_source(str(reference))
     with tempfile.TemporaryDirectory(prefix='nixodoo-framework-') as temporary:
         if local:
-            snapshot = Path(temporary) / 'framework'
+            snapshot = resolve_root(temporary) / 'framework'
             snapshot.mkdir()
             # Do not pass project runtime files or credentials to the Nix store.
             for name in ('flake.nix', 'flake.lock', 'nix'):
@@ -90,7 +90,7 @@ def framework_source(reference):
         provenance = {'kind': 'local', 'narHash': locked['narHash']}
         if not local and locked.get('rev'):
             provenance = {'kind': 'git', 'source': str(reference), 'revision': locked['rev'], 'narHash': locked['narHash']}
-        yield Path(metadata['path']), provenance
+        yield resolve_root(metadata['path']), provenance
 
 
 def nix_arguments(framework, config, provenance, system, target):
@@ -102,7 +102,7 @@ def nix_arguments(framework, config, provenance, system, target):
 
 def build(framework, config, provenance, system, target='candidate'):
     result = run(['nix', 'build', '--no-link', '--json', *nix_arguments(framework, config, provenance, system, target)])
-    return Path(json.loads(result)[0]['outputs']['out'])
+    return resolve_root(json.loads(result)[0]['outputs']['out'])
 
 
 def evaluate_config(framework, config, system):
@@ -139,14 +139,14 @@ def lock_dependencies(directory, tools, *, requirements=None):
 
 
 def init_project(arguments, framework_reference, system):
-    destination = arguments.destination.absolute()
-    checked_path(destination.parent, destination.name)
+    display_destination = arguments.destination.absolute()
+    destination = checked_path(resolve_root(display_destination.parent), display_destination.name)
     if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
         raise ValueError(f'initialization requires a new or empty directory: {destination}')
     if not destination.parent.is_dir():
         raise ValueError(f'parent directory does not exist: {destination.parent}')
     with tempfile.TemporaryDirectory(prefix='.nixodoo-init-', dir=destination.parent) as temporary:
-        temporary = Path(temporary)
+        temporary = resolve_root(temporary)
         config = temporary / 'config.nix'
         if arguments.config:
             if arguments.project_name or arguments.odoo:
@@ -168,7 +168,7 @@ def init_project(arguments, framework_reference, system):
             add_seed(candidate, manifest, 'uv.lock', (candidate / 'tree/uv.lock').read_bytes())
             stage = temporary / 'project'
             stage.mkdir()
-            apply_update(stage, candidate)
+            apply_resolved_update(stage, candidate)
             run(['git', 'init', '--initial-branch=main', stage])
             run(['git', 'add', '--all'], cwd=stage)
             # Check again after preparation, before replacing an empty destination.
@@ -178,7 +178,7 @@ def init_project(arguments, framework_reference, system):
                     raise ConflictError([str(destination)], 'initialization target became nonempty')
                 destination.rmdir()
             os.rename(stage, destination)
-    print(f'Created {destination}')
+    print(f'Created {display_destination}')
     return 0
 
 
@@ -211,7 +211,7 @@ def report_preserved(project, candidate, manifest, operations):
 
 
 def refresh_project(arguments, framework_reference, system):
-    project = Path.cwd()
+    project = resolve_root(Path.cwd())
     installed = load_manifest(project, MANIFEST)
     config_file = checked_path(project, 'config.nix')
     if read_state(project, 'config.nix') is None:
@@ -221,7 +221,7 @@ def refresh_project(arguments, framework_reference, system):
     if originals['pyproject.toml'] is None:
         raise ValueError('missing pyproject.toml')
     with tempfile.TemporaryDirectory(prefix='nixodoo-refresh-') as temporary:
-        temporary = Path(temporary)
+        temporary = resolve_root(temporary)
         config = temporary / 'config.nix'
         config.write_bytes(originals['config.nix'])
         # Refresh uses only the project's vendored implementation and lock file.
@@ -260,7 +260,7 @@ def refresh_project(arguments, framework_reference, system):
                 edits = [metadata_edit(name, (workspace / name).read_bytes(), states[name])
                          for name in ('pyproject.toml', 'uv.lock')]
             edits.append(metadata_edit('config.nix', originals['config.nix'], states['config.nix']))
-            operations, resulting_manifest = prepare_update(project, candidate, edits=edits)
+            operations, resulting_manifest = prepare_resolved_update(project, candidate, edits=edits)
             report_preserved(project, candidate, resulting_manifest, operations)
             changed = bool(operations) or installed != resulting_manifest
             for operation in operations:
@@ -272,7 +272,7 @@ def refresh_project(arguments, framework_reference, system):
                 print('Python dependency metadata changed: run nix run .#refresh-deps to update uv.lock.')
             if arguments.check:
                 return 1 if changed else 0
-            apply_update(project, candidate, edits=edits)
+            apply_resolved_update(project, candidate, edits=edits)
     print('Project metadata refreshed.' if changed else 'Project is up to date.')
     return 0
 

@@ -57,8 +57,13 @@ def validate_path(path):
     return path
 
 
+def resolve_root(root):
+    """Resolve ancestor symlinks once, before an operation captures file state."""
+    return Path(os.path.realpath(Path(root).absolute()))
+
+
 def checked_path(root, relative):
-    """Reject symlinks and non-directory parents, including a substituted root."""
+    """Check a physical root and its children without following replacement symlinks."""
     root = Path(root).absolute()
     current = Path(root.anchor)
     parts = root.parts[1:] + Path(relative).parts
@@ -159,6 +164,11 @@ def matches(state, declaration):
 
 
 def prepare_update(project, candidate, *, edits=()):
+    return prepare_resolved_update(resolve_root(project), resolve_root(candidate), edits=edits)
+
+
+def prepare_resolved_update(project, candidate, *, edits=()):
+    """Plan using roots already resolved before capturing any edit expectations."""
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     pending = checked_path(project, JOURNAL)
     if pending.exists():
@@ -324,7 +334,7 @@ def restore(project, journal):
 
 
 def recover(project: Path):
-    project = Path(project).absolute()
+    project = resolve_root(project)
     with project_lock(project):
         directory = checked_path(project, JOURNAL)
         if not directory.exists():
@@ -338,10 +348,15 @@ def recover(project: Path):
 
 
 def apply_update(project: Path, candidate: Path, *, edits=()) -> None:
+    apply_resolved_update(resolve_root(project), resolve_root(candidate), edits=edits)
+
+
+def apply_resolved_update(project: Path, candidate: Path, *, edits=()) -> None:
+    """Apply using fixed physical roots throughout locking, planning, and rollback."""
     project, candidate = Path(project).absolute(), Path(candidate).absolute()
     with project_lock(project):
         edits = list(edits)
-        operations, manifest = prepare_update(project, candidate, edits=edits)
+        operations, manifest = prepare_resolved_update(project, candidate, edits=edits)
         edit_data = {edit.path: edit.data for edit in edits}
         edit_modes = {edit.path: edit.mode for edit in edits}
         manifest_data = (json.dumps(manifest, indent=2, sort_keys=True) + '\n').encode()

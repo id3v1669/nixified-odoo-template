@@ -172,6 +172,63 @@ class TransactionTests(unittest.TestCase):
             transaction.apply_update(self.project, self.new)
         self.assertEqual(self.snapshot(), before)
 
+    def test_update_through_symlinked_ancestors_creates_physical_directories(self):
+        alias = self.root / 'alias'
+        alias.symlink_to(self.root, target_is_directory=True)
+        project = alias / self.project.name
+        candidate = alias / self.new.name
+        operations, _ = transaction.prepare_update(project, candidate)
+        self.assertIn('added/nested', [op.path for op in operations])
+        transaction.apply_update(project, candidate)
+        self.assertEqual((self.project / 'added/nested').read_bytes(), b'added\n')
+        self.assertEqual((self.project / 'nix/tool.sh').read_bytes(), b'new\n')
+        self.assertFalse((self.project / transaction.JOURNAL).exists())
+
+    def test_project_substitution_after_lock_is_not_resolved_again(self):
+        moved = self.root / 'moved-project'
+        original = transaction.project_lock
+
+        @transaction.contextmanager
+        def substitute(project):
+            with original(project):
+                self.project.rename(moved)
+                self.project.symlink_to(moved, target_is_directory=True)
+                yield
+
+        before = self.snapshot()
+        try:
+            with patch.object(transaction, 'project_lock', substitute):
+                with self.assertRaises(transaction.ConflictError):
+                    transaction.apply_update(self.project, self.new)
+        finally:
+            self.project.unlink()
+            moved.rename(self.project)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_candidate_substitution_after_lock_is_not_resolved_again(self):
+        moved = self.root / 'moved-candidate'
+        original = transaction.project_lock
+
+        @transaction.contextmanager
+        def substitute(project):
+            with original(project):
+                self.new.rename(moved)
+                self.new.symlink_to(moved, target_is_directory=True)
+                yield
+
+        before = self.snapshot()
+        with patch.object(transaction, 'project_lock', substitute):
+            with self.assertRaises(transaction.ConflictError):
+                transaction.apply_update(self.project, self.new)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_candidate_tree_symlink_is_rejected(self):
+        tree = self.new / 'tree'
+        tree.rename(self.root / 'outside-tree')
+        tree.symlink_to(self.root / 'outside-tree', target_is_directory=True)
+        with self.assertRaises(transaction.ConflictError):
+            transaction.prepare_update(self.project, self.new)
+
     def test_recorded_seed_cannot_be_reclaimed_or_recreated(self):
         manifest_path = self.project / '.nixodoo/manifest.json'
         manifest = json.loads(manifest_path.read_text())
@@ -213,6 +270,8 @@ class TransactionTests(unittest.TestCase):
         (self.project / 'nix/tool.sh').chmod(0o775)
         (self.project / 'obsolete').chmod(0o664)
         (self.project / transaction.MANIFEST).chmod(0o664)
+        alias = self.root / 'rollback-alias'
+        alias.symlink_to(self.root, target_is_directory=True)
         before = self.snapshot()
         original = os.replace
         failed = False
@@ -225,7 +284,8 @@ class TransactionTests(unittest.TestCase):
             return original(source, destination, *args, **kwargs)
 
         with patch.object(transaction.os, 'replace', side_effect=fail_once):
-            with self.assertRaises(OSError): transaction.apply_update(self.project, self.new)
+            with self.assertRaises(OSError):
+                transaction.apply_update(alias / self.project.name, alias / self.new.name)
         self.assertTrue(failed)
         self.assertEqual(self.snapshot(), before)
         self.assertFalse((self.project / '.nixodoo/transaction').exists())
@@ -233,6 +293,8 @@ class TransactionTests(unittest.TestCase):
     def test_crash_refuses_further_apply_until_recovered(self):
         (self.project / 'nix/tool.sh').chmod(0o700)
         (self.project / 'obsolete').chmod(0o600)
+        alias = self.root / 'recovery-alias'
+        alias.symlink_to(self.root, target_is_directory=True)
         before = self.snapshot()
         script = '''import os,sys
 sys.path.insert(0,sys.argv[1])
@@ -244,11 +306,12 @@ def crash(source,destination,*args,**kwargs):
 os.replace=crash
 transaction.apply_update(transaction.Path(sys.argv[2]),transaction.Path(sys.argv[3]))
 '''
-        result = subprocess.run([sys.executable, '-c', script, str(MODULE.parent), str(self.project), str(self.new)])
+        result = subprocess.run([sys.executable, '-c', script, str(MODULE.parent),
+                                 str(alias / self.project.name), str(alias / self.new.name)])
         self.assertEqual(result.returncode, 77)
         with self.assertRaises(transaction.RecoveryRequired):
             transaction.apply_update(self.project, self.new)
-        transaction.recover(self.project)
+        transaction.recover(alias / self.project.name)
         self.assertEqual(self.snapshot(), before)
         transaction.apply_update(self.project, self.new)
 
