@@ -6,8 +6,10 @@ let
   yaml = pkgs.formats.yaml { };
   workspace = "\${workspaceFolder}";
   userHome = "\${userHome}";
+  envHome = "\${env:HOME}";
   projectDir = "\${" + config.projectDirVar + ":-$PWD}";
   profile = "${userHome}/${config.derived.nixProfileRel}";
+  vscodeProfile = "${envHome}/${config.derived.nixProfileRel}";
   editorConfig = name: defaults: lib.recursiveUpdate defaults (config.editorSettings.${name} or { });
   baseRepos = builtins.listToAttrs (map (repo: {
     name = "./${repo.path}";
@@ -82,7 +84,7 @@ in {
   });
 } // lib.optionalAttrs (config.editor == "vscode") {
   ".vscode/settings.json" = json.generate "vscode-settings.json" (editorConfig "vscode" {
-    "python.defaultInterpreterPath" = "${profile}/bin/python";
+    "python.defaultInterpreterPath" = "${vscodeProfile}/bin/python";
     "ty.importStrategy" = "useBundled";
     "files.exclude" = {
       "**/*.egg-info" = true;

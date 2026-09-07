@@ -97,11 +97,26 @@ class GeneratedConfigTests(unittest.TestCase):
                                                    "odools": {"config": [{"name": "custom-profile"}]}}}))
         settings = json.loads((root / ".vscode/settings.json").read_text())
         self.assertEqual(settings["python.defaultInterpreterPath"],
-                         "${userHome}/.local/state/nix/profiles/acme/bin/python")
+                         "${env:HOME}/.local/state/nix/profiles/acme/bin/python")
         self.assertTrue(settings["files.exclude"]["scratch"])
         self.assertTrue(settings["files.exclude"][".ruff_cache"])
         odools = tomllib.loads((root / "odools.toml").read_text())
         self.assertEqual(odools["config"][0]["name"], "custom-profile")
+
+    def test_editor_home_variables_for_default_and_suffixed_profiles(self):
+        for fixture, profile in (("default-19", ".nix-profile"),
+                                 ("suffix-19", ".local/state/nix/profiles/acme")):
+            with self.subTest(fixture=fixture):
+                root = build_fixture("formats-fixture.nix", fixtureName=fixture,
+                                     overridesJson=json.dumps({"editor": "vscode"}))
+                settings_text = (root / ".vscode/settings.json").read_text()
+                settings = json.loads(settings_text)
+                self.assertEqual(settings["python.defaultInterpreterPath"],
+                                 "${env:HOME}/" + profile + "/bin/python")
+                self.assertNotIn("${userHome}", settings_text)
+                odools = tomllib.loads((root / "odools.toml").read_text())
+                self.assertEqual(odools["config"][0]["python_path"],
+                                 "${userHome}/" + profile + "/bin/python3")
 
 
 if __name__ == "__main__":
