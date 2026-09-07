@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import configparser
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -48,6 +49,105 @@ class ClaudeHelperTests(unittest.TestCase):
                 result = self.run_helper("hooks/guard-readonly.sh", stdin=json.dumps({
                     "tool_input": {"file_path": str(self.project / path)}}))
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_readonly_hook_classifies_symlinked_repositories(self):
+        outside = self.project.parent / "outside"
+        outside.mkdir()
+        for name in ("odoo", "queue", "acme-addons"):
+            (self.project / "src" / name).symlink_to(outside, target_is_directory=True)
+        alias = self.project.parent / "alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        for root, file_root in product((self.project, alias), repeat=2):
+            for name, expected in (("odoo", 2), ("queue", 2), ("acme-addons", 0)):
+                for value in (f"src/{name}/models.py", str(file_root / "src" / name / "models.py")):
+                    with self.subTest(root=root, value=value):
+                        result = subprocess.run(["bash", str(root / ".claude/hooks/guard-readonly.sh")],
+                            cwd=self.project, env={key: value for key, value in os.environ.items()
+                                                  if key != "ODOO17_PROJECT_DIR"},
+                            input=json.dumps({"tool_input": {"file_path": value}}),
+                            capture_output=True, text=True)
+                        self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_readonly_hook_blocks_custom_symlink_into_core(self):
+        core = self.project / "src/odoo"
+        core.mkdir()
+        custom = self.project / "src/acme-addons"
+        custom.mkdir()
+        (custom / "core").symlink_to("../odoo", target_is_directory=True)
+        for external in (False, True):
+            if external:
+                outside = self.project.parent / "outside-core"
+                core.rename(outside)
+                core.symlink_to(outside, target_is_directory=True)
+            with self.subTest(external=external):
+                result = self.run_helper("hooks/guard-readonly.sh", stdin=json.dumps({
+                    "tool_input": {"file_path": str(custom / "core/models.py")}}))
+                self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_hooks_reject_symlink_loops(self):
+        custom = self.project / "src/acme-addons"
+        custom.mkdir()
+        (custom / "loop").symlink_to("loop", target_is_directory=True)
+        for hook in ("guard-readonly.sh", "ruff-post-edit.sh"):
+            with self.subTest(hook=hook):
+                result = self.run_helper("hooks/" + hook, stdin=json.dumps({
+                    "tool_input": {"file_path": str(custom / "loop/models.py")}}))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Cannot classify repository path", result.stderr)
+
+    def test_hooks_report_missing_public_settings(self):
+        (self.project / ".nixodoo/env.sh").unlink()
+        for hook in ("guard-readonly.sh", "ruff-post-edit.sh"):
+            with self.subTest(hook=hook):
+                result = self.run_helper("hooks/" + hook, stdin=json.dumps({
+                    "tool_input": {"file_path": str(self.project / "src/odoo/models.py")}}))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Cannot load public project settings", result.stderr)
+                self.assertIn(".nixodoo/env.sh", result.stderr)
+
+    def test_ruff_formats_custom_files_through_aliases_without_touching_core(self):
+        core = self.project / "src/odoo"
+        core.mkdir()
+        (core / "models.py").write_text("x=1\n")
+        custom = self.project / "src/acme-addons"
+        custom.mkdir()
+        (custom / "models.py").write_text("x=1\n")
+        (self.project / "src/queue").symlink_to(custom, target_is_directory=True)
+        (custom / "core").symlink_to(core, target_is_directory=True)
+        alias = self.project.parent / "alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        tools = self.project.parent / "tools"
+        tools.mkdir()
+        log = tools / "calls.jsonl"
+        ruff = tools / "ruff"
+        ruff.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
+                        'with open(os.environ["RUFF_TEST_LOG"], "a") as log:\n'
+                        '    log.write(json.dumps(sys.argv[1:]) + "\\n")\n')
+        ruff.chmod(0o755)
+        env = {key: value for key, value in os.environ.items() if key != "ODOO17_PROJECT_DIR"}
+        env.update(PATH=str(tools) + os.pathsep + env["PATH"], RUFF_TEST_LOG=str(log))
+        for external in (False, True):
+            if external:
+                outside = self.project.parent / "outside-custom"
+                custom.rename(outside)
+                custom.symlink_to(outside, target_is_directory=True)
+            for root, file_root in product((self.project, alias), repeat=2):
+                for value, expected in ((str(file_root / "src/acme-addons/models.py"), True),
+                                        ("src/acme-addons/models.py", True),
+                                        (str(file_root / "src/acme-addons/core/models.py"), False),
+                                        (str(file_root / "src/odoo/models.py"), False),
+                                        (str(file_root / "src/queue/models.py"), False)):
+                    with self.subTest(external=external, root=root, value=value):
+                        log.unlink(missing_ok=True)
+                        result = subprocess.run(["bash", str(root / ".claude/hooks/ruff-post-edit.sh")],
+                            cwd=self.project, env=env | {"ODOO17_PROJECT_DIR": str(root)},
+                            input=json.dumps({"tool_input": {"file_path": value}}),
+                            capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+                        physical = str((custom / "models.py").resolve())
+                        self.assertEqual(calls, [["check", "--fix", "--quiet", "--ignore", "F401", physical],
+                                                 ["format", "--quiet", physical]] if expected else [])
 
     def test_worktree_farm_selects_custom_worktree_and_shared_oca(self):
         main_custom = self.project / "src/acme-addons/acme_sale"

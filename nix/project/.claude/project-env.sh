@@ -2,7 +2,10 @@
 # Source the public project settings generated from config.nix.
 NIXODOO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
-source "$NIXODOO_ROOT/.nixodoo/env.sh"
+if ! source "$NIXODOO_ROOT/.nixodoo/env.sh"; then
+    echo "Cannot load public project settings: $NIXODOO_ROOT/.nixodoo/env.sh. Restore the generated settings before retrying." >&2
+    return 2
+fi
 if [ -n "${!PROJECT_DIR_VAR:-}" ]; then
     NIXODOO_ROOT="${!PROJECT_DIR_VAR}"
 fi
