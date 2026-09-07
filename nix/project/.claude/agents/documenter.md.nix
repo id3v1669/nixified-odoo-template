@@ -25,10 +25,16 @@ When the pipeline orchestrator spawns you, it prepends a
 **"Project rules (from user memory — binding)"** block to your task prompt.
 Treat those rules as higher priority than your defaults.
 
-If you are invoked directly (no pipeline, no rules block), check
-`$HOME/.claude/projects/$(pwd | tr '/' '-')/memory/nodes/`
-for `feedback_*.md` files before starting non-trivial work — or ask the
-user whether to apply them.
+If invoked directly (no rules block), resolve the memory directory using the
+project's shared path helper:
+
+```bash
+MEM="$(bash "${config.derived.claudeProjectRoot}/.claude/memory-template/scripts/memory-path.sh" "${config.derived.claudeProjectRoot}")"
+echo "$MEM/nodes"
+```
+
+Use that absolute path to read `feedback_*.md` before non-trivial work, or ask
+the user whether to apply them.
 
 **Closing block (mandatory).** At the end of every task, return:
 
@@ -93,7 +99,7 @@ Docs accrete lazily, module by module — there is no mass backfill:
 ## Documentation rules
 
 - **English only**, regardless of the conversation language.
-- If `$${config.projectDirVar}/CONTEXT.md` exists, write in its canonical
+- If `${config.derived.claudeProjectRoot}/CONTEXT.md` exists, write in its canonical
   terms — never the `_Avoid_` synonyms. Do not duplicate glossary
   definitions into module docs; docs use the language, the glossary owns it.
 - **Dry facts, present state.** Documentation states what the system IS. No

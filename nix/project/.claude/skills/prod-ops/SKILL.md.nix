@@ -17,7 +17,7 @@ command and getting an explicit OK.
 
 ## Access & layout
 
-- `ssh -F "$${config.projectDirVar}/.ssh/config" prod '<remote command>'` — the
+- `ssh -F "${config.derived.claudeProjectRoot}/.ssh/config" prod '<remote command>'` — the
   same connection `nix run .#prod-server` uses interactively. Add `-A` only
   when the remote command needs git (pull on the forwarded key).
 ${lib.optionalString (config.testSshHost != "") ''
@@ -73,7 +73,7 @@ validated arguments is one reviewable permission decision; inline
 classifier and is unreviewable anyway.
 
 ```bash
-bash "$${config.projectDirVar}/.claude/skills/prod-ops/scripts/prod-run-odoo-script.sh" <prod${lib.optionalString (config.testSshHost != "") ''|test''}> <script.py> [dry|commit]
+bash "${config.derived.claudeProjectRoot}/.claude/skills/prod-ops/scripts/prod-run-odoo-script.sh" <prod${lib.optionalString (config.testSshHost != "") ''|test''}> <script.py> [dry|commit]
 ```
 
 The runner pipes the file into `odoo-bin shell` on the box (superuser), passes

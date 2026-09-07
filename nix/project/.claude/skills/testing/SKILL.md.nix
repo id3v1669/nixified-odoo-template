@@ -324,11 +324,11 @@ uninstalled module runs 0 tests and exits green — use `-i`), grep for
 
 ```bash
 # All tests for a module
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u ${config.modulePrefix}_<module> \
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" -u ${config.modulePrefix}_<module> \
     --workers 0 --test-enable --stop-after-init --logfile=/dev/stdout
 
 # Specific test class
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u ${config.modulePrefix}_<module> \
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" -u ${config.modulePrefix}_<module> \
     --workers 0 --test-enable --test-tags=/${config.modulePrefix}_<module>:TestClassName \
     --stop-after-init --logfile=/dev/stdout
 ```

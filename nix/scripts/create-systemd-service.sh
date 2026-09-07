@@ -5,7 +5,7 @@
 # flake.nix).
 set -e
 SYSTEMD_DIR="$HOME/.config/systemd/user"
-PROJECT_DIR="$PWD"
+PROJECT_DIR="${!PROJECT_DIR_VAR}"
 ACTIVATE=true
 if [ "${1:-}" = "--output-dir" ] && [ "$#" -eq 2 ]; then
     SYSTEMD_DIR="$2"
@@ -19,24 +19,6 @@ echo "Creating systemd user services..."
 echo "Project directory: $PROJECT_DIR"
 mkdir -p "$SYSTEMD_DIR"
 
-# Add or update $PROJECT_DIR_VAR in ~/.bashrc if it exists
-if [ "$ACTIVATE" = true ] && [ -f "$HOME/.bashrc" ]; then
-    if grep -q "export $PROJECT_DIR_VAR=" "$HOME/.bashrc"; then
-        echo "Updating $PROJECT_DIR_VAR in ~/.bashrc..."
-        sed -i "s|export $PROJECT_DIR_VAR=.*|export $PROJECT_DIR_VAR=$PROJECT_DIR|g" "$HOME/.bashrc"
-        echo "  Updated $PROJECT_DIR_VAR in ~/.bashrc"
-    else
-        echo "Adding $PROJECT_DIR_VAR to ~/.bashrc..."
-        {
-            echo ""
-            echo "# Odoo project directory"
-            echo "export $PROJECT_DIR_VAR=$PROJECT_DIR"
-            echo ""
-        } >> "$HOME/.bashrc"
-        echo "  Added $PROJECT_DIR_VAR to ~/.bashrc"
-    fi
-fi
-
 # Create Odoo service
 ODOO_SERVICE_FILE="$SYSTEMD_DIR/odoo${SERVICE_SUFFIX}.service"
 echo "Creating Odoo service..."
@@ -47,6 +29,7 @@ After=network.target
 
 [Service]
 Type=simple
+WorkingDirectory=$PROJECT_DIR
 Environment="PATH=%h/${NIX_PROFILE_REL}/bin:\$PATH"
 Environment="$PROJECT_DIR_VAR=$PROJECT_DIR"
 ExecStart=%h/${NIX_PROFILE_REL}/bin/odoo -c "$PROJECT_DIR/odoo.conf"

@@ -112,6 +112,145 @@ class CliTests(unittest.TestCase):
         self.assertIn('unsafe file or parent', result.stderr)
         self.assertEqual(list(actual.iterdir()), [])
 
+    def test_init_dot_preserves_callers_working_directory(self):
+        self.project.mkdir()
+        before = self.project.stat()
+        # Keep the shell in the destination across init, then resolve its cwd and
+        # access generated files through that original directory reference.
+        result = subprocess.run(
+            ['bash', '-c', '"$1" "$2" init . --config "$3" && pwd -P && test -f flake.nix',
+             '--', sys.executable, str(CLI), str(self.config)], cwd=self.project,
+            env=os.environ | {'NIXODOO_FRAMEWORK_ROOT': str(ROOT),
+                              'NIXODOO_SYSTEM': 'x86_64-linux'},
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = self.project.stat()
+        self.assertEqual((before.st_dev, before.st_ino), (after.st_dev, after.st_ino))
+        self.assertTrue((self.project / '.git').is_dir())
+
+    def test_failed_init_preserves_existing_empty_directory(self):
+        self.project.mkdir()
+        before = self.project.stat()
+        self.config.write_text('{ projectName = "bad"; ports.http = 0; }')
+        result = self.run_cli('init', self.project, '--config', self.config)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self.project.stat().st_ino, before.st_ino)
+        self.assertEqual(list(self.project.iterdir()), [])
+
+    def test_init_install_failure_rolls_back_existing_directory(self):
+        cli = load_cli()
+        self.project.mkdir()
+        before = self.project.stat()
+        original_link = os.link
+        links = 0
+
+        def fail_during_install(source, destination, *args, **kwargs):
+            nonlocal links
+            if Path(destination).is_relative_to(self.project):
+                links += 1
+                if links == 3:
+                    raise OSError('injected install failure')
+            return original_link(source, destination, *args, **kwargs)
+
+        with patch.object(cli.os, 'link', side_effect=fail_during_install), patch.dict(
+                os.environ, {'NIXODOO_FRAMEWORK_ROOT': str(ROOT), 'NIXODOO_SYSTEM': 'x86_64-linux'}):
+            result = cli.main(['init', str(self.project), '--config', str(self.config)])
+        self.assertEqual(result, 2)
+        self.assertEqual(self.project.stat().st_ino, before.st_ino)
+        self.assertEqual(list(self.project.iterdir()), [])
+
+    def test_new_init_does_not_expose_partially_installed_tree(self):
+        cli = load_cli()
+        original_link = os.link
+
+        def observe_publication(source, destination, *args, **kwargs):
+            if Path(destination).is_relative_to(self.project):
+                self.assertFalse(self.project.exists(), 'partially initialized project is visible')
+            return original_link(source, destination, *args, **kwargs)
+
+        with patch.object(cli.os, 'link', side_effect=observe_publication), patch.dict(
+                os.environ, {'NIXODOO_FRAMEWORK_ROOT': str(ROOT), 'NIXODOO_SYSTEM': 'x86_64-linux'}):
+            result = cli.main(['init', str(self.project), '--config', str(self.config)])
+        self.assertEqual(result, 0)
+        self.assertTrue((self.project / '.git').is_dir())
+        self.assertTrue((self.project / 'flake.nix').is_file())
+
+    def test_init_rollback_preserves_in_place_edits_to_published_files(self):
+        cli = load_cli()
+        for mutation in ('content', 'mode'):
+            with self.subTest(mutation=mutation):
+                stage = self.root / f'stage-{mutation}'
+                stage.mkdir()
+                destination = self.root / f'destination-{mutation}'
+                destination.mkdir()
+                for name in ('a-edited', 'b-untouched', 'c-failure'):
+                    (stage / name).write_text('generated')
+                    (stage / name).chmod(0o644)
+                original_link = os.link
+
+                def edit_during_publication(source, target, *args, **kwargs):
+                    if Path(target).name == 'c-failure':
+                        raise OSError('injected publication failure')
+                    result = original_link(source, target, *args, **kwargs)
+                    if Path(target).name == 'a-edited':
+                        # Edit before the publisher can record post-link state.
+                        # The stage shares this inode, so it changes too.
+                        if mutation == 'content':
+                            Path(target).write_text('concurrent user edit')
+                        else:
+                            Path(target).chmod(0o600)
+                    return result
+
+                with patch.object(cli.os, 'link', side_effect=edit_during_publication):
+                    with self.assertRaisesRegex(OSError, 'injected publication failure'):
+                        cli.install_initial_tree(stage, destination)
+                self.assertEqual(sorted(p.name for p in destination.iterdir()), ['a-edited'])
+                edited = destination / 'a-edited'
+                self.assertEqual(edited.read_text(),
+                                 'concurrent user edit' if mutation == 'content' else 'generated')
+                self.assertEqual(edited.stat().st_mode & 0o777,
+                                 0o600 if mutation == 'mode' else 0o644)
+
+    def test_atomic_publication_refuses_concurrent_destinations(self):
+        cli = load_cli()
+        for nonempty in (False, True):
+            with self.subTest(nonempty=nonempty):
+                stage = self.root / f'stage-{nonempty}'
+                stage.mkdir()
+                (stage / 'generated').write_text('generated')
+                destination = self.root / f'destination-{nonempty}'
+                destination.mkdir()
+                before = destination.stat()
+                if nonempty:
+                    (destination / 'user-file').write_text('preserve')
+                with self.assertRaises(FileExistsError):
+                    cli.publish_new_project(stage, destination)
+                self.assertEqual(destination.stat().st_ino, before.st_ino)
+                self.assertEqual((stage / 'generated').read_text(), 'generated')
+                self.assertEqual(sorted(p.name for p in destination.iterdir()),
+                                 ['user-file'] if nonempty else [])
+
+    def test_init_install_does_not_overwrite_concurrent_file(self):
+        cli = load_cli()
+        self.project.mkdir()
+        original_link = os.link
+        raced = None
+
+        def race_install(source, destination, *args, **kwargs):
+            nonlocal raced
+            if raced is None and Path(destination).is_relative_to(self.project):
+                raced = Path(destination)
+                raced.write_text('concurrent user data')
+            return original_link(source, destination, *args, **kwargs)
+
+        with patch.object(cli.os, 'link', side_effect=race_install), patch.dict(
+                os.environ, {'NIXODOO_FRAMEWORK_ROOT': str(ROOT), 'NIXODOO_SYSTEM': 'x86_64-linux'}):
+            result = cli.main(['init', str(self.project), '--config', str(self.config)])
+        self.assertEqual(result, 2)
+        self.assertIsNotNone(raced)
+        self.assertEqual(raced.read_text(), 'concurrent user data')
+        self.assertEqual([p for p in self.project.rglob('*') if p.is_file()], [raced])
+
     def test_refresh_commands_accept_git_checkout_umasks(self):
         self.init()
         for mask, regular, executable in ((0o002, 0o664, 0o775), (0o077, 0o600, 0o700)):
@@ -198,6 +337,33 @@ class CliTests(unittest.TestCase):
         update = subprocess.run(['nix', 'eval', '--raw', '.#apps.x86_64-linux.update.program'],
                                 cwd=self.project, capture_output=True, text=True)
         self.assertEqual(update.returncode, 0, update.stderr)
+
+    def test_invalid_config_does_not_block_generator_apps(self):
+        self.init()
+        for source in ('{ projectName = "cli-test"; ports.http = 0; }', '{ malformed'):
+            with self.subTest(source=source):
+                (self.project / 'config.nix').write_text(source)
+                for name in ('init', 'update', 'refresh-config', 'refresh-deps', 'recover'):
+                    for output, attribute in (('apps', 'program'), ('packages', 'drvPath')):
+                        result = subprocess.run(
+                            ['nix', 'eval', '--raw', f'.#{output}.x86_64-linux.{name}.{attribute}'],
+                            cwd=self.project, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                recovered = subprocess.run(['nix', 'run', '.#recover'], cwd=self.project,
+                                           capture_output=True, text=True)
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                runtime = subprocess.run(
+                    ['nix', 'eval', '--raw', '.#apps.x86_64-linux.create-env.program'],
+                    cwd=self.project, capture_output=True, text=True)
+                self.assertNotEqual(runtime.returncode, 0)
+                self.assertIn('ports.http' if 'ports.http' in source else 'syntax error', runtime.stderr)
+
+    def test_disabled_optional_app_reports_configuration(self):
+        self.init()
+        result = subprocess.run(['nix', 'run', '.#create-vscode-settings'], cwd=self.project,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('configuration disables create-vscode-settings', result.stderr)
 
     def test_dev_shell_uses_project_tools_without_running_setup(self):
         self.config.write_text('{ projectName = "cli-test"; odooVersion = "19.0"; python = "3.12"; '

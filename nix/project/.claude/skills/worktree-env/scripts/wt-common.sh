@@ -4,9 +4,9 @@
 # The main environment supplies the shared PostgreSQL cluster and OCA sources.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/project-env.sh"
 PROJ="$NIXODOO_ROOT"
+cd "$PROJ" || return 2
 SRC_REPO="$PROJ/src/$CUSTOM_REPO_NAME"
 MAIN_FARM="$PROJ/.local/share/Odoo/addons/$ODOO_VERSION"
-SEED_FILESTORE="$PROJ/.local/share/Odoo/filestore/$DB_NAME"
 WT_ROOT="$PROJ/.worktrees"
 WT_ENVROOT="$WT_ROOT/_env"
 BACKUP_DIR="$PROJ/backup"
@@ -38,6 +38,7 @@ if [ -z "${PGPASSWORD:-}" ]; then
     fi
 fi
 export PGPASSWORD
+SEED_FILESTORE="$PROJ/.local/share/Odoo/filestore/${PGDATABASE:-$DB_NAME}"
 PGPORT="${PGPORT:-$POSTGRES_PORT}"
 PGUSER="${PGUSER:-$DB_USER}"
 PSQL=(psql -h localhost -p "$PGPORT" -U "$PGUSER")

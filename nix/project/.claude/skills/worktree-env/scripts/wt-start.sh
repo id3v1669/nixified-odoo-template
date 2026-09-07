@@ -25,13 +25,13 @@ mkdir -p "$ENV_DIR" "$DATA_DIR/sessions" "$DATA_DIR/filestore"
 # --- critical section: worktree add + port allocation (serialized) ---
 exec 9>"$LOCKFILE"
 flock 9
-git -C "$SRC_REPO" fetch -q origin "${ODOO_VERSION}"
+git -C "$SRC_REPO" fetch -q origin "${CUSTOM_REPO_BRANCH}"
 if git -C "$SRC_REPO" worktree list --porcelain | grep -qx "worktree $WT_PATH"; then
     :                                                                       # reuse
 elif git -C "$SRC_REPO" show-ref --verify -q "refs/heads/$SLUG"; then
     git -C "$SRC_REPO" worktree add -q "$WT_PATH" "$SLUG"                    # branch exists
 else
-    git -C "$SRC_REPO" worktree add -q -b "$SLUG" "$WT_PATH" "origin/${ODOO_VERSION}"
+    git -C "$SRC_REPO" worktree add -q -b "$SLUG" "$WT_PATH" "origin/${CUSTOM_REPO_BRANCH}"
 fi
 if [ -f "$ENV_DIR/port" ]; then
     PORT="$(cat "$ENV_DIR/port")"

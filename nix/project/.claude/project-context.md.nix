@@ -26,13 +26,13 @@ Module prefix: `${config.modulePrefix}`. Ticket prefix: `${config.ticketPrefix}`
 systemctl --user {start|stop|restart|status} odoo${config.serviceSuffix}.service postgres${config.serviceSuffix}.service nginx${config.serviceSuffix}.service
 
 # Update/install module (stop running odoo first)
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u module_name --workers 0 --stop-after-init --logfile=/dev/stdout
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" -u module_name --workers 0 --stop-after-init --logfile=/dev/stdout
 
 # Interactive shell
-${config.derived.odooCmd} shell -c $${config.projectDirVar}/odoo.conf --workers 0 --stop-after-init
+${config.derived.odooCmd} shell -c "${config.derived.claudeProjectRoot}/odoo.conf" --workers 0 --stop-after-init
 
 # Run a specific test class/method
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u module_name --workers 0 --test-enable --test-tags module_name.test_file_name --stop-after-init --logfile=/dev/stdout
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" -u module_name --workers 0 --test-enable --test-tags module_name.test_file_name --stop-after-init --logfile=/dev/stdout
 
 # Clone/update repos and regenerate addon symlinks
 nix run .#update-repos

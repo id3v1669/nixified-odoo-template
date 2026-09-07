@@ -2,12 +2,15 @@
 # Generate odoo.conf from .env values (no-op if odoo.conf already exists).
 set -e
 umask 077
+nixodoo_selected_root="${!PROJECT_DIR_VAR}"
 if [ -f .env ]; then
     set -a
     # shellcheck disable=SC1091
     source .env
     set +a
 fi
+printf -v "$PROJECT_DIR_VAR" '%s' "$nixodoo_selected_root"
+unset nixodoo_selected_root
 
 mkdir -p .local/share/Odoo
 DATA_DIR="$(realpath ".local/share/Odoo")"

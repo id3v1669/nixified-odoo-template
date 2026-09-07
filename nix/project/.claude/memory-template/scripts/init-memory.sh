@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Initialize Claude's per-project graph memory from this template.
 #
+# Requires Bash, standard Unix utilities, and Node.js from the project profile
+# or PATH. Before installing a profile, after project setup, run from its root:
+#   nix develop --command bash .claude/memory-template/scripts/init-memory.sh
+#
 # Usage:
 #   bash init-memory.sh [TARGET_PROJECT_DIR]
 #
 # TARGET_PROJECT_DIR defaults to the current directory. The script computes
-# the Claude Code project slug (absolute path with '/' -> '-'), creates
+# the Claude Code project slug (non-alphanumeric characters become '-'), creates
 #   $HOME/.claude/projects/<slug>/memory/
 # copies this template there, and substitutes the __MEMORY_DIR__ placeholder
 # with the real absolute memory path. It refuses to overwrite existing memory.
@@ -13,10 +17,10 @@ set -e
 
 TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-$PWD}"
-TARGET="$(cd "$TARGET" && pwd)"   # absolutize
-
-SLUG="$(printf '%s' "$TARGET" | tr '/' '-')"
-MEM_DIR="$HOME/.claude/projects/$SLUG/memory"
+TARGET="$(cd "$TARGET" && pwd)"
+MEM_DIR="$("$BASH" "$TEMPLATE_DIR/scripts/memory-path.sh" "$TARGET")"
+SLUG="${MEM_DIR%/memory}"
+SLUG="${SLUG##*/}"
 
 if [ -e "$MEM_DIR" ]; then
   echo "Memory already exists: $MEM_DIR (refusing to overwrite)." >&2

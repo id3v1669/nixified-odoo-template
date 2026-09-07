@@ -17,7 +17,7 @@ touch the user's main env (`src/${config.customRepoName}` / `${config.dbName}` /
 
 | | Main (user's) | Session `<slug>` |
 |---|---|---|
-| Code | `src/${config.customRepoName}` | `.worktrees/<slug>` (branch off `origin/${config.odooVersion}`) |
+| Code | `src/${config.customRepoName}` | `.worktrees/<slug>` (branch off `origin/${config.derived.customRepoBranch}`) |
 | Runtime | `odoo.conf` | `.worktrees/_env/<slug>/{odoo.conf,data,port}` |
 | Service | `odoo${config.serviceSuffix}.service` | `odoo${config.serviceSuffix}-wt@<slug>.service` |
 | DB | `${config.dbName}` | `wt_<slug>` (own restore of the prod dump) |
@@ -25,9 +25,9 @@ touch the user's main env (`src/${config.customRepoName}` / `${config.dbName}` /
 
 ## Commands
 
-Invoke by absolute path under `$${config.projectDirVar}/.claude/skills/worktree-env/scripts/`:
+Invoke by absolute path under `${config.derived.claudeProjectRoot}/.claude/skills/worktree-env/scripts/`:
 
-- **`wt-start.sh <slug>`** — bring the env up: add the worktree off `origin/${config.odooVersion}` as
+- **`wt-start.sh <slug>`** — bring the env up: add the worktree off `origin/${config.derived.customRepoBranch}` as
   branch `<slug>`, allocate a free port, build the session addons farm, restore
   `wt_<slug>` from the prod seed dump (+ `odoo neutralize` + dev fixups), start
   `odoo${config.serviceSuffix}-wt@<slug>.service`.

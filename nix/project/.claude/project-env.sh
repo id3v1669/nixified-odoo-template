@@ -6,11 +6,9 @@ if ! source "$NIXODOO_ROOT/.nixodoo/env.sh"; then
     echo "Cannot load public project settings: $NIXODOO_ROOT/.nixodoo/env.sh. Restore the generated settings before retrying." >&2
     return 2
 fi
-if [ -n "${!PROJECT_DIR_VAR:-}" ]; then
-    NIXODOO_ROOT="${!PROJECT_DIR_VAR}"
-fi
 printf -v "$PROJECT_DIR_VAR" '%s' "$NIXODOO_ROOT"
 export NIXODOO_ROOT "${PROJECT_DIR_VAR?}"
+export PATH="$HOME/$NIX_PROFILE_REL/bin:$PATH"
 ODOO_CMD="$HOME/$NIX_PROFILE_REL/bin/odoo"
 export ODOO_CMD
 

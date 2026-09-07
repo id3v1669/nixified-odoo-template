@@ -30,10 +30,16 @@ When the pipeline orchestrator spawns you, it prepends a
 **"Project rules (from user memory — binding)"** block to your task prompt.
 Treat those rules as higher priority than your defaults.
 
-If you are invoked directly (no pipeline, no rules block), check
-`$HOME/.claude/projects/$(pwd | tr '/' '-')/memory/nodes/`
-for `feedback_*.md` files before starting non-trivial work — or ask the
-user whether to apply them.
+If invoked directly (no rules block), resolve the memory directory using the
+project's shared path helper:
+
+```bash
+MEM="$(bash "${config.derived.claudeProjectRoot}/.claude/memory-template/scripts/memory-path.sh" "${config.derived.claudeProjectRoot}")"
+echo "$MEM/nodes"
+```
+
+Use that absolute path to read `feedback_*.md` before non-trivial work, or ask
+the user whether to apply them.
 
 **Closing block (mandatory).** At the end of every task, return:
 
@@ -72,16 +78,16 @@ Tests, security (ACL/record rules), and error handling remain required.
 4. Create views: Form -> Tree -> Search -> Kanban
 5. Add security: groups -> ACL -> record rules
 6. Update symlinks (if needed): `nix run .#update-repos`
-7. Install/update: `${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf {-i|-u} ${config.modulePrefix}_<feature> --workers 0 --stop-after-init --logfile=/dev/stdout`
+7. Install/update: `${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" {-i|-u} ${config.modulePrefix}_<feature> --workers 0 --stop-after-init --logfile=/dev/stdout`
 8. Iterate: check logs, fix issues, repeat
 
 ## Rules
 
 - Complete, working code — never stubs or TODO placeholders.
-- If `$${config.projectDirVar}/CONTEXT.md` exists, Read it first and use its
+- If `${config.derived.claudeProjectRoot}/CONTEXT.md` exists, Read it first and use its
   canonical terms for model/field/method names, field strings and labels;
   its `_Avoid_` synonyms are red flags. Before "fixing" a surprising design,
-  check `$${config.projectDirVar}/docs/adr/` — it may be deliberate.
+  check `${config.derived.claudeProjectRoot}/docs/adr/` — it may be deliberate.
 - Follow class attribute order and naming conventions strictly.
 - Every new model needs security files (ACL + record rules).
 - When modifying existing modules, check `__manifest__.py` dependencies and data file order.

@@ -7,7 +7,7 @@ let
   workspace = "\${workspaceFolder}";
   userHome = "\${userHome}";
   envHome = "\${env:HOME}";
-  projectDir = "\${" + config.projectDirVar + ":-$PWD}";
+  projectDir = config.derived.claudeProjectRoot;
   profile = "${userHome}/${config.derived.nixProfileRel}";
   vscodeProfile = "${envHome}/${config.derived.nixProfileRel}";
   editorConfig = name: defaults: lib.recursiveUpdate defaults (config.editorSettings.${name} or { });
@@ -121,6 +121,7 @@ in {
   };
   ".claude/settings.json" = json.generate "claude-settings.json" {
     hooks = {
+      SessionStart = [ { hooks = [ (hook "bash" "hooks/session-env.sh") ]; } ];
       PreToolUse = [
         { matcher = "Edit|Write"; hooks = [ (hook "bash" "hooks/guard-readonly.sh") ]; }
         { matcher = "Bash"; hooks = [ (hook "bash" "hooks/guard-bash.sh") (hook "python3" "hooks/nudge-find-code.py") ]; }

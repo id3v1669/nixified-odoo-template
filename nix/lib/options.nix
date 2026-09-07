@@ -33,7 +33,7 @@ in
 {
   options = {
     projectName = mkOption {
-      type = types.addCheck (types.strMatching "[a-z][a-z0-9-]+")
+      type = types.addCheck (types.strMatching "[a-z][a-z0-9-]*[a-z0-9]")
         (name: builtins.stringLength name <= 32);
       description = "Project name in lowercase kebab-case, at most 32 characters.";
     };
@@ -124,6 +124,9 @@ in
 
   config = {
     derived = {
+      claudeProjectRoot = "\${CLAUDE_PROJECT_DIR:-$PWD}";
+      customRepoBranch = (lib.findFirst (repo: repo.name == config.customRepoName)
+        { branch = config.odooVersion; } config.repositories.addons).branch;
       odooMajor = major;
       nixProfileRel = profile;
       nixProfileInstall = if config.serviceSuffix == "" then "nix profile add .#dev-server"

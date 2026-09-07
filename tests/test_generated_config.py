@@ -91,6 +91,16 @@ class GeneratedConfigTests(unittest.TestCase):
             self.assertEqual(arguments[-1], "postgresql://literal with spaces/$value")
             self.assertEqual(arguments[:2], ["--with", "mcp<2"])
 
+    def test_custom_repository_branch_is_exported_to_helpers(self):
+        root = build_fixture("formats-fixture.nix", fixtureName="full-17", overridesJson=json.dumps({
+            "repositories": {"addons": [{"name": "acme-addons", "url": "https://example.com/custom.git",
+                                           "branch": "release/custom"}]}}))
+        config = json.loads((root / ".nixodoo/config.json").read_text())
+        self.assertEqual(config["derived"]["customRepoBranch"], "release/custom")
+        result = subprocess.run(["bash", "-c", 'source "$1"; printf "%s" "$CUSTOM_REPO_BRANCH"',
+                                 "bash", str(root / ".nixodoo/env.sh")], capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, "release/custom")
+
     def test_editor_overrides_and_profile_paths(self):
         root = build_fixture("formats-fixture.nix", fixtureName="suffix-19", overridesJson=json.dumps({
             "editor": "vscode", "editorSettings": {"vscode": {"files.exclude": {"scratch": True}},

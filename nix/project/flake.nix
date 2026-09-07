@@ -24,10 +24,33 @@
         pkgs = import nixpkgs { inherit system; };
         frameworkRoot = self;
       };
+      # Keep output names independent of config.nix: Nix inspects packages even
+      # when selecting an app, and recovery must work with an invalid config.
+      runtimeCommands = [
+        "create-env" "update-repos" "bootstrap-deps" "create-odoo-config"
+        "create-nginx-config" "create-systemd-service" "setup-postgres"
+        "create-debug-venv" "setup-prod" "setup-test" "setup-dev"
+        "create-aws-config" "download-backup" "setup-ssh-access" "create-vscode-settings"
+      ];
+      runtimePackage = system: name:
+        (perSystem system).packages.${name} or
+        ((import nixpkgs { inherit system; }).writeShellApplication {
+          inherit name;
+          text = ''
+            echo 'Project configuration disables ${name}.' >&2
+            exit 2
+          '';
+        });
+      named = names: f: builtins.listToAttrs (map (name: { inherit name; value = f name; }) names);
       forSystems = f: builtins.listToAttrs (map (system: { name = system; value = f system; }) systems);
     in {
-      packages = forSystems (system: (perSystem system).packages // (generator system).packages);
-      apps = forSystems (system: (perSystem system).apps // (generator system).apps);
+      packages = forSystems (system:
+        named (runtimeCommands ++ [ "dev-server" "test-server" "prod-server" ])
+          (runtimePackage system) // (generator system).packages);
+      apps = forSystems (system: named runtimeCommands (name: {
+        type = "app";
+        program = "${runtimePackage system name}/bin/${name}";
+      }) // (generator system).apps);
       devShells = forSystems (system: (perSystem system).devShells);
       checks = forSystems (system: (perSystem system).checks);
     };

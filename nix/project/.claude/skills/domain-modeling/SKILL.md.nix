@@ -16,8 +16,8 @@ The project's shared language and decision history. *Reading* `CONTEXT.md` is a 
 
 | File | Content |
 |------|---------|
-| `$${config.projectDirVar}/CONTEXT.md` | glossary — pure vocabulary; no implementation details, no spec, no scratch notes |
-| `$${config.projectDirVar}/docs/adr/NNNN-slug.md` | one decision each, sequential numbering (next = highest existing + 1) |
+| `${config.derived.claudeProjectRoot}/CONTEXT.md` | glossary — pure vocabulary; no implementation details, no spec, no scratch notes |
+| `${config.derived.claudeProjectRoot}/docs/adr/NNNN-slug.md` | one decision each, sequential numbering (next = highest existing + 1) |
 
 Both created lazily — on the first resolved term / first qualifying decision. Both written in English.
 

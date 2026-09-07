@@ -23,9 +23,16 @@ preloaded (conventions, anti-patterns, test patterns).
 
 The pipeline orchestrator prepends a **"Project rules (from user memory —
 binding)"** block to your prompt — treat it as higher priority than your defaults.
-If invoked directly (no rules block), check
-`$HOME/.claude/projects/$(pwd | tr '/' '-')/memory/nodes/` for `feedback_*.md`
-before non-trivial work, or ask the user.
+If invoked directly (no rules block), resolve the memory directory using the
+project's shared path helper:
+
+```bash
+MEM="$(bash "${config.derived.claudeProjectRoot}/.claude/memory-template/scripts/memory-path.sh" "${config.derived.claudeProjectRoot}")"
+echo "$MEM/nodes"
+```
+
+Use that absolute path to read `feedback_*.md` before non-trivial work, or ask
+the user whether to apply them.
 
 **Closing block (mandatory)** — end every task with:
 
@@ -106,9 +113,9 @@ security / controllers / data / migrations), new dependencies, migrations needed
   or a security / permission gap. Pure style or naming preferences go in a short
   **Nits** group — surfaced, not dropped.
 - Detect errors and risks first, then improvements.
-- If `$${config.projectDirVar}/CONTEXT.md` exists, check naming against it —
+- If `${config.derived.claudeProjectRoot}/CONTEXT.md` exists, check naming against it —
   an `_Avoid_` synonym used for a model/field/label is a Minor finding.
-  Check `$${config.projectDirVar}/docs/adr/` before flagging a surprising
+  Check `${config.derived.claudeProjectRoot}/docs/adr/` before flagging a surprising
   design as a bug — it may be a recorded deliberate decision.
 - For each finding give: file path + line number, **severity** (Critical / Major /
   Minor) and **confidence** (high / medium / low). Group by severity, nits last.

@@ -25,7 +25,7 @@ each leaves an artifact (a test, a script, a log excerpt) that goes to the ticke
 ## Channel 1 — targeted test (preferred)
 
 ```bash
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf --workers 0 --stop-after-init --logfile=/dev/stdout \
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" --workers 0 --stop-after-init --logfile=/dev/stdout \
     --http-port <free port> --test-enable --test-tags /${config.modulePrefix}_<module>:TestX.test_y
 ```
 
@@ -44,7 +44,7 @@ ${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf --workers 0 --st
 ## Channel 2 — ${config.derived.odooCmd} shell script
 
 ```bash
-${config.derived.odooCmd} shell -c $${config.projectDirVar}/odoo.conf --workers 0 --stop-after-init < probe.py
+${config.derived.odooCmd} shell -c "${config.derived.claudeProjectRoot}/odoo.conf" --workers 0 --stop-after-init < probe.py
 ```
 
 - Print, don't reason from memory: `record.read([...])`, `record.mapped(...)`,

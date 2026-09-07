@@ -13,16 +13,20 @@ let
       makeWrapper ${pkgs.awscli2}/bin/aws "$out/bin/aws"
       ln -s ${wrapper}/bin/odoo "$out/bin/odoo"
     '' + extraInstall);
-  devTools = [ pkgs.ruff pkgs.uv pkgs.git pkgs.ccze ];
+  devTools = [ pkgs.ruff pkgs.uv pkgs.git pkgs.ccze pkgs.nodejs pkgs.bash pkgs.curl ];
   devExtras = ''
     makeWrapper ${pkgs.ccze}/bin/ccze "$out/bin/ccze"
     makeWrapper ${pkgs.ruff}/bin/ruff "$out/bin/ruff"
     makeWrapper ${pkgs.uv}/bin/uv "$out/bin/uv"
     makeWrapper ${pkgs.git}/bin/git "$out/bin/git"
+    makeWrapper ${pkgs.nodejs}/bin/node "$out/bin/node"
+    makeWrapper ${pkgs.bash}/bin/bash "$out/bin/bash"
+    makeWrapper ${pkgs.curl}/bin/curl "$out/bin/curl"
     for tool in psql pg_dump pg_restore createdb dropdb; do
       makeWrapper ${postgresql}/bin/$tool "$out/bin/$tool" \
-        --run 'if [ -z "''${${config.projectDirVar}}" ]; then ${config.projectDirVar}="$(pwd)"; fi' \
-        --run 'if [ -f "''${${config.projectDirVar}}/.env" ]; then set -a; source "''${${config.projectDirVar}}/.env"; set +a; fi' \
+        --run ${lib.escapeShellArg "PROJECT_DIR_VAR=${lib.escapeShellArg config.projectDirVar}; source ${./project-root.sh}"} \
+        --run 'nixodoo_selected_root="''${${config.projectDirVar}}"; if [ -f "$nixodoo_selected_root/.env" ]; then set -a; source "$nixodoo_selected_root/.env"; set +a; fi' \
+        --run '${config.projectDirVar}="$nixodoo_selected_root"; unset nixodoo_selected_root' \
         --run 'export PGDATA="''${${config.projectDirVar}}/.postgres"' \
         --run 'export PGHOST="''${${config.projectDirVar}}/.postgres"'
     done

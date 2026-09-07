@@ -12,7 +12,7 @@ belongs here, not inline in `SKILL.md`.
 
 | Script | Deploy step | Writes | Success marker |
 |---|---|---|---|
-| `prod-deploy-modules.sh` | Step 2, every deploy | pulls `${config.odooVersion}`, updates modules, restarts the service | `DEPLOY_EXIT=0` |
+| `prod-deploy-modules.sh` | Step 2, every deploy | pulls `${config.derived.customRepoBranch}`, updates modules, restarts the service | `DEPLOY_EXIT=0` |
 ${lib.optionalString (config.useQueueJob) ''| `prod-requeue-jobs.sh` | Step 6, after a clean deploy | `queue.job` enqueued/started → pending | `REQUEUED <n>` |
 ''}
 Every script here takes the host alias as its first argument (`prod` / `test`),
@@ -23,8 +23,8 @@ Call them with the host spelled out — that is the form the permission rules
 match:
 
 ```bash
-bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" prod -u <modules>
-${lib.optionalString (config.useQueueJob) ''bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-requeue-jobs.sh" prod
+bash "${config.derived.claudeProjectRoot}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" prod -u <modules>
+${lib.optionalString (config.useQueueJob) ''bash "${config.derived.claudeProjectRoot}/.claude/skills/deploy/scripts/prod-requeue-jobs.sh" prod
 ''}```
 
 ## Permissions

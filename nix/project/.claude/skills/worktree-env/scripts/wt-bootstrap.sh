@@ -18,6 +18,7 @@ After=network.target
 
 [Service]
 Type=simple
+WorkingDirectory=$PROJ
 Environment="PATH=%h/${NIX_PROFILE_REL}/bin:\$PATH"
 Environment=${PROJECT_DIR_VAR}=$PROJ
 ExecStart=%h/${NIX_PROFILE_REL}/bin/odoo -c $WT_ENVROOT/%i/odoo.conf

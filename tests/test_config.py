@@ -57,6 +57,14 @@ class ConfigTests(unittest.TestCase):
     def test_project_name_is_required(self):
         self.reject({}, "projectName")
 
+    def test_project_name_has_package_compatible_ends_and_length(self):
+        for name in ('acme-', 'a-', 'a', '1a', 'a' * 33):
+            with self.subTest(name=name):
+                self.reject({'projectName': name}, 'projectName')
+        for name in ('ab', 'a1', 'a-team', 'a' * 32):
+            with self.subTest(name=name):
+                self.assertEqual(self.evaluate({'projectName': name})['projectName'], name)
+
     def test_unknown_option_is_rejected(self):
         self.reject({"projectName": "acme", "serviceSufix": "-acme"}, "serviceSufix")
 

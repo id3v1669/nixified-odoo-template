@@ -33,6 +33,21 @@ Those commands run explicitly. They keep existing `.env`, `odoo.conf`, and
 nginx configuration, and regenerate systemd units and logrotate configuration.
 Inspect the instructions they print before enabling services.
 
+Runtime launchers use the nearest enclosing generated project, even when an
+inherited environment variable points elsewhere. A `src/odoo` directory alone
+does not identify a project. Setup commands run from the project root, including
+when invoked from a subdirectory. They resolve relative configuration paths
+against that root. The service generator resolves `--output-dir` against the
+caller's directory. Setup does not edit `.bashrc`.
+
+Claude sessions keep their project root for hooks and subsequent Bash commands.
+Run standalone skill commands from the project root. Claude helpers use the
+project containing them and add its configured profile to `PATH`, including
+suffixed profiles.
+
+Deployment and new worktrees use the custom repository's configured branch.
+Worktree filestore seeding uses `PGDATABASE` from `.env` when set.
+
 ### Optional development shell
 
 After setup, run `nix develop` from the project root to use the project's

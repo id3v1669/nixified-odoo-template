@@ -7,6 +7,7 @@ import configparser
 from itertools import product
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,6 +39,137 @@ class ClaudeHelperTests(unittest.TestCase):
         return subprocess.run([str(self.project / ".claude" / name), *args],
                               cwd=self.project, input=stdin, capture_output=True, text=True,
                               env={key: value for key, value in os.environ.items() if key != "ODOO17_PROJECT_DIR"})
+
+    def test_generated_hook_and_statusline_ignore_foreign_root(self):
+        other = self.project.parent / "other"
+        (other / ".claude/hooks").mkdir(parents=True)
+        (other / ".claude/hooks/guard-readonly.sh").write_text("echo wrong-project\n")
+        (other / ".claude/statusline-command.sh").write_text("echo wrong-project\n")
+        settings = json.loads((self.project / ".claude/settings.json").read_text())
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
+        env["ODOO17_PROJECT_DIR"] = str(other)
+        nested = self.project / "nested"
+        nested.mkdir()
+        for cwd, extra in ((self.project, {}), (nested, {"CLAUDE_PROJECT_DIR": str(self.project)})):
+            with self.subTest(cwd=cwd):
+                result = subprocess.run(["bash", "-c", command], cwd=cwd, env=env | extra,
+                    input=json.dumps({"tool_input": {"file_path": str(self.project / "src/odoo/odoo-bin")}}),
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("read-only", result.stderr)
+        home = self.project.parent / "status-home"
+        tools = home / ".nix-profile/bin"
+        tools.mkdir(parents=True)
+        node = tools / "node"
+        node.write_text("#!/bin/sh\necho correct-statusline\n")
+        node.chmod(0o755)
+        result = subprocess.run(["bash", "-c", settings["statusLine"]["command"]], cwd=nested,
+            env=env | {"HOME": str(home), "CLAUDE_PROJECT_DIR": str(self.project)}, input="{}",
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "correct-statusline")
+
+    def test_rendered_skill_command_works_without_shell_export(self):
+        pipeline = (self.project / ".claude/skills/pipeline/SKILL.md").read_text()
+        command = re.search(r'bash "[^\n]+/wt-start.sh" <slug>', pipeline).group().replace("<slug>", "bad/slug")
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("CLAUDE_PROJECT_DIR", "ODOO17_PROJECT_DIR")}
+        for extra in ({}, {"ODOO17_PROJECT_DIR": "/wrong-project"}):
+            with self.subTest(extra=extra):
+                result = subprocess.run(["bash", "-c", command], cwd=self.project, env=env | extra,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Invalid worktree slug", result.stderr)
+
+    def test_session_start_exports_root_for_later_bash_commands(self):
+        settings = json.loads((self.project / ".claude/settings.json").read_text())
+        command = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        env_file = self.project.parent / "session-env"
+        env = os.environ | {"CLAUDE_PROJECT_DIR": str(self.project),
+                            "CLAUDE_ENV_FILE": str(env_file), "ODOO17_PROJECT_DIR": "/wrong"}
+        result = subprocess.run(["bash", "-c", command], cwd=self.project.parent,
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pipeline = (self.project / ".claude/skills/pipeline/SKILL.md").read_text()
+        skill = re.search(r'bash "[^\n]+/wt-start.sh" <slug>', pipeline).group().replace("<slug>", "bad/slug")
+        env.pop("CLAUDE_PROJECT_DIR")
+        result = subprocess.run(["bash", "-c", 'source "$1"; ' + skill, "bash", str(env_file)],
+                                cwd=self.project.parent, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("Invalid worktree slug", result.stderr)
+        self.assertNotIn("PGPASSWORD", env_file.read_text())
+
+    def test_helper_root_ignores_another_project_export(self):
+        other = self.project.parent / "other"
+        other.mkdir()
+        result = subprocess.run([str(self.project / ".claude/hooks/guard-readonly.sh")],
+                                cwd=self.project, env={**os.environ, "ODOO17_PROJECT_DIR": str(other)},
+                                input=json.dumps({"tool_input": {"file_path": str(self.project / "src/odoo/odoo-bin")}}),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_helpers_use_profile_tools_and_env_database(self):
+        home = self.project.parent / "home"
+        profile = home / ".local/state/nix/profiles/acme/bin"
+        profile.mkdir(parents=True)
+        with (self.project / ".nixodoo/env.sh").open("a") as settings:
+            settings.write("\nexport NIX_PROFILE_REL=.local/state/nix/profiles/acme\n")
+        psql = profile / "psql"
+        psql.write_text("#!/bin/sh\nprintf 'profile-psql'\n")
+        psql.chmod(0o755)
+        (self.project / ".env").write_text("PGDATABASE=chosen-database\n")
+        common = self.project / ".claude/skills/worktree-env/scripts/wt-common.sh"
+        result = subprocess.run(["bash", "-c", 'source "$1"; printf "%s\n" "$SEED_FILESTORE"; "${PSQL[@]}"',
+                                 "bash", str(common)], cwd=self.project,
+                                env={**os.environ, "HOME": str(home)}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(),
+                         [str(self.project / ".local/share/Odoo/filestore/chosen-database"), "profile-psql"])
+
+    def test_worktree_helpers_anchor_subprocesses_to_their_project(self):
+        other = self.project.parent / "other"
+        (other / ".nixodoo").mkdir(parents=True)
+        common = self.project / ".claude/skills/worktree-env/scripts/wt-common.sh"
+        result = subprocess.run(["bash", "-c", 'source "$1"; pwd', "bash", str(common)],
+                                cwd=other, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(result.stdout.strip()), self.project)
+
+    def test_worktree_service_sets_project_working_directory(self):
+        home = self.project.parent / "unit-home"
+        tools = home / ".nix-profile/bin"
+        tools.mkdir(parents=True)
+        systemctl = tools / "systemctl"
+        systemctl.write_text("#!/bin/sh\nexit 0\n")
+        systemctl.chmod(0o755)
+        script = self.project / ".claude/skills/worktree-env/scripts/wt-bootstrap.sh"
+        result = subprocess.run([str(script)], cwd=self.project.parent,
+                                env=os.environ | {"HOME": str(home)}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        units = list((home / ".config/systemd/user").glob("*-wt@.service"))
+        self.assertEqual(len(units), 1)
+        self.assertIn(f"WorkingDirectory={self.project}\n", units[0].read_text())
+
+    def test_worktree_fetches_configured_custom_branch(self):
+        scripts = self.project / ".claude/skills/worktree-env/scripts"
+        (scripts / "wt-bootstrap.sh").write_text("#!/bin/sh\nexit 0\n")
+        (self.project / ".worktrees").mkdir()
+        (self.project / "backup").mkdir(exist_ok=True)
+        (self.project / "backup/seed.dump").touch()
+        home = self.project.parent / "branch-home"
+        tools = home / ".nix-profile/bin"
+        tools.mkdir(parents=True)
+        git = tools / "git"
+        git.write_text('#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\nsys.exit(42)\n')
+        git.chmod(0o755)
+        with (self.project / ".nixodoo/env.sh").open("a") as settings:
+            settings.write("\nexport CUSTOM_REPO_BRANCH=release/custom\n")
+        result = subprocess.run([str(scripts / "wt-start.sh"), "test-task"], cwd=self.project,
+                                env={**os.environ, "HOME": str(home)}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertEqual(json.loads(result.stdout),
+                         ["-C", str(self.project / "src/acme-addons"), "fetch", "-q", "origin", "release/custom"])
 
     def test_readonly_hook_allows_custom_modules_and_blocks_core(self):
         for path, expected in (("src/acme-addons/acme_sale/models.py", 0),
@@ -165,6 +297,13 @@ class ClaudeHelperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((destination / "acme_sale").resolve(), module)
         self.assertEqual((destination / "queue_job").resolve(), oca)
+        result = subprocess.run([str(self.project / ".claude/skills/worktree-env/scripts/wt-link.sh"),
+                                 "task", "relative farm"], cwd=worktree.parent,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((worktree.parent / "relative farm/acme_sale").resolve(), module)
+        self.assertFalse((self.project / "relative farm").exists())
+
 
     def test_worktree_config_uses_runtime_credentials_and_version_settings(self):
         (self.project / ".env").write_text("PGPASSWORD='literal-$value'\nPGUSER=custom_role\nPGPORT=25432\n")
@@ -219,12 +358,14 @@ class ClaudeHelperTests(unittest.TestCase):
         import shlex
         config_path = self.project / ".nixodoo/config.json"
         config = json.loads(config_path.read_text())
+        config["derived"]["customRepoBranch"] = "release/custom"
         config.update(prodRemoteProjectDir="/srv/Odoo Project", prodRemoteOdooConf="/etc/odoo project.conf")
         config_path.chmod(0o644)
         config_path.write_text(json.dumps(config))
         result = self.run_helper("remote-command.py", "deploy", "-u", "acme_sale", "--link-addons")
         self.assertEqual(result.returncode, 0, result.stderr)
         commands = result.stdout.splitlines()
+        self.assertIn("git pull origin release/custom", commands)
         self.assertIn(["cd", "/srv/Odoo Project/src/acme-addons"], [shlex.split(line) for line in commands])
         python = next(shlex.split(line) for line in commands if line.startswith("python "))
         self.assertEqual(python[1], "/srv/Odoo Project/src/odoo/odoo-bin")

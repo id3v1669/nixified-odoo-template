@@ -34,7 +34,7 @@ you resolve it, so it is never guessed again); resolve by topic with
 **Prod server** — access, box layout, PATH export and service ops live in the
 **`prod-ops` skill**; this skill only adds the deploy specifics:
 - Every deploy ssh call carries **`-A`**
-  (`ssh -A -F "$${config.projectDirVar}/.ssh/config" prod '<remote script>'`):
+  (`ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod '<remote script>'`):
   the box's `origin` is a git SSH remote and the pull runs on your forwarded
   key. A stale deploy key in the box's `~/.ssh` is not the account that owns
   the branch — do not use it.
@@ -44,7 +44,7 @@ ${lib.optionalString (config.testSshHost != "") ''
 
 ## Step 1 — Resolve the PR
 
-PRs live in `${repoOrg}/${config.customRepoName}`, base `${config.odooVersion}`.
+PRs live in `${repoOrg}/${config.customRepoName}`, base `${config.derived.customRepoBranch}`.
 
 ```bash
 gh pr view <PR> -R ${repoOrg}/${config.customRepoName} --json number,title,body,url,state,mergedAt
@@ -69,7 +69,7 @@ ${lib.optionalString (config.ticketsMcp == "odoo") ''
   ```bash
   # MC^1..MC, never `git show $MC`: on a merge commit git show prints the
   # combined diff, which is empty here, so the grep would pass every PR.
-  git -C "$${config.projectDirVar}/src/${config.customRepoName}" diff "$MC^1..$MC" -- '*/migrations/*' \
+  git -C "${config.derived.claudeProjectRoot}/src/${config.customRepoName}" diff "$MC^1..$MC" -- '*/migrations/*' \
     | grep -inE '^\+.*(DROP TABLE|DROP COLUMN|ALTER TABLE|TRUNCATE|LOCK TABLE)'
   ```
 
@@ -80,9 +80,9 @@ ${lib.optionalString (config.ticketsMcp == "odoo") ''
 
   ```bash
   MC=$(gh pr view <PR> -R ${repoOrg}/${config.customRepoName} --json mergeCommit --jq .mergeCommit.oid)
-  git -C "$${config.projectDirVar}/src/${config.customRepoName}" fetch origin
-  python3 "$${config.projectDirVar}/.claude/skills/deploy-checks/scripts/blast-radius.py" \
-    --repo "$${config.projectDirVar}/src/${config.customRepoName}" --range "$MC^1..$MC"
+  git -C "${config.derived.claudeProjectRoot}/src/${config.customRepoName}" fetch origin
+  python3 "${config.derived.claudeProjectRoot}/.claude/skills/deploy-checks/scripts/blast-radius.py" \
+    --repo "${config.derived.claudeProjectRoot}/src/${config.customRepoName}" --range "$MC^1..$MC"
   ```
 
   Capture the final `BLAST_RADIUS=<tier>` — it drives Step 6.5/Step 9: **high**
@@ -93,14 +93,14 @@ ${lib.optionalString (config.ticketsMcp == "odoo") ''
 structure (new fields), so an update is always needed; never skip it.
 
 **Derive the module list from the pull, not from the PR.** `git pull origin
-${config.odooVersion}` fast-forwards the whole branch, so everything merged since prod's last
+${config.derived.customRepoBranch}` fast-forwards the whole branch, so everything merged since prod's last
 deploy comes along and goes live on the restart — including PRs nobody asked you
 to deploy, which then never get their own `-u`. List what is actually landing:
 
 ```bash
-PROD_HEAD=$(ssh -F "$${config.projectDirVar}/.ssh/config" prod 'git -C ${config.prodRemoteProjectDir}/src/${config.customRepoName} rev-parse HEAD')
-git -C "$${config.projectDirVar}/src/${config.customRepoName}" fetch origin
-git -C "$${config.projectDirVar}/src/${config.customRepoName}" diff --name-only "$PROD_HEAD..origin/${config.odooVersion}" | cut -d/ -f1 | sort -u
+PROD_HEAD=$(ssh -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'git -C ${config.prodRemoteProjectDir}/src/${config.customRepoName} rev-parse HEAD')
+git -C "${config.derived.claudeProjectRoot}/src/${config.customRepoName}" fetch origin
+git -C "${config.derived.claudeProjectRoot}/src/${config.customRepoName}" diff --name-only "$PROD_HEAD..origin/${config.derived.customRepoBranch}" | cut -d/ -f1 | sort -u
 ```
 
 Every module in that list belongs in `<modules>`; name the extra PRs in Step 3
@@ -112,7 +112,7 @@ so the approval covers them.
 and for the permission-rule shapes.
 
 ```bash
-bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" <${if (config.testSshHost != "") then ''prod|test'' else ''prod''}> <-u|-i> <modules> [--link-addons]
+bash "${config.derived.claudeProjectRoot}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" <${if (config.testSshHost != "") then ''prod|test'' else ''prod''}> <-u|-i> <modules> [--link-addons]
 ```
 
 - `<modules>` comma-separated, no spaces. `--link-addons` **only** when a module
@@ -126,7 +126,7 @@ bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-deploy-modules
 set -euo pipefail
 export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"   # non-interactive SSH lacks the nix PATH; bare `python` = exit 127
 cd ${config.prodRemoteProjectDir}/src/${config.customRepoName}
-git pull origin ${config.odooVersion}
+git pull origin ${config.derived.customRepoBranch}
 cd ${config.prodRemoteProjectDir} && ${config.prodLinkAddonsCmd}          # --link-addons only
 python ${config.prodRemoteProjectDir}/src/odoo/odoo-bin -c ${config.prodRemoteOdooConf} --workers 0 -d ${config.prodDbName} <-u|-i> <modules> --stop-after-init --logfile=/dev/stdout
 systemctl --user restart odoo${config.serviceSuffix}.service
@@ -154,19 +154,19 @@ detached — a dropped SSH connection must never leave prod stopped:
 
 ```bash
 # git pull first, service still up
-ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'set -euo pipefail
+ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'set -euo pipefail
 export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"
-cd ${config.prodRemoteProjectDir}/src/${config.customRepoName} && git pull origin ${config.odooVersion}'
+cd ${config.prodRemoteProjectDir}/src/${config.customRepoName} && git pull origin ${config.derived.customRepoBranch}'
 
-ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'systemctl --user stop odoo${config.serviceSuffix}.service'
+ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'systemctl --user stop odoo${config.serviceSuffix}.service'
 
-ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"; rm -f /tmp/deploy-pr<PR>.log; setsid nohup bash -c "python ${config.prodRemoteProjectDir}/src/odoo/odoo-bin -c ${config.prodRemoteOdooConf} --workers 0 -d ${config.prodDbName} -u <modules> --stop-after-init --logfile=/tmp/deploy-pr<PR>.log; echo RETRY_EXIT=\$? >> /tmp/deploy-pr<PR>.log" > /dev/null 2>&1 < /dev/null & echo LAUNCHED'
+ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"; rm -f /tmp/deploy-pr<PR>.log; setsid nohup bash -c "python ${config.prodRemoteProjectDir}/src/odoo/odoo-bin -c ${config.prodRemoteOdooConf} --workers 0 -d ${config.prodDbName} -u <modules> --stop-after-init --logfile=/tmp/deploy-pr<PR>.log; echo RETRY_EXIT=\$? >> /tmp/deploy-pr<PR>.log" > /dev/null 2>&1 < /dev/null & echo LAUNCHED'
 
 # poll until the marker lands, then read the result
-until ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'grep -q "RETRY_EXIT=" /tmp/deploy-pr<PR>.log 2>/dev/null'; do sleep 20; done
-ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'grep -aE "RETRY_EXIT=|Modules loaded" /tmp/deploy-pr<PR>.log; grep -acE " (ERROR|CRITICAL) " /tmp/deploy-pr<PR>.log'
+until ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'grep -q "RETRY_EXIT=" /tmp/deploy-pr<PR>.log 2>/dev/null'; do sleep 20; done
+ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'grep -aE "RETRY_EXIT=|Modules loaded" /tmp/deploy-pr<PR>.log; grep -acE " (ERROR|CRITICAL) " /tmp/deploy-pr<PR>.log'
 
-ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'systemctl --user start odoo${config.serviceSuffix}.service'
+ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'systemctl --user start odoo${config.serviceSuffix}.service'
 ```
 
 `RETRY_EXIT=0` + `Modules loaded.` is the success pair. **Non-zero → prod is
@@ -222,7 +222,7 @@ Then run the Step-2 script, capturing full output to a file — the log is long
 and the Step-7 `ERROR`/`CRITICAL` scan needs all of it, not a truncated tail:
 
 ```bash
-bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" prod -u <modules> > /tmp/deploy-pr<PR>.log 2>&1; echo "EXIT=$?"
+bash "${config.derived.claudeProjectRoot}/.claude/skills/deploy/scripts/prod-deploy-modules.sh" prod -u <modules> > /tmp/deploy-pr<PR>.log 2>&1; echo "EXIT=$?"
 tail -n 30 /tmp/deploy-pr<PR>.log
 grep -cE " (ERROR|CRITICAL) " /tmp/deploy-pr<PR>.log
 ```
@@ -246,7 +246,7 @@ effect as the OCA "Requeue" button) — **separate SSH call**, so a requeue hicc
 never retro-fails a good deploy:
 
 ```bash
-bash "$${config.projectDirVar}/.claude/skills/deploy/scripts/prod-requeue-jobs.sh" prod
+bash "${config.derived.claudeProjectRoot}/.claude/skills/deploy/scripts/prod-requeue-jobs.sh" prod
 ```
 
 - Read the `REQUEUED <n>` line for the count. No report needed — just do it. The
@@ -269,9 +269,9 @@ reporting table whose cron will not fire inside the window — run it first, fro
 that it writes.
 
 ```bash
-CHECKS="$${config.projectDirVar}/.claude/skills/deploy-checks/scripts"
+CHECKS="${config.derived.claudeProjectRoot}/.claude/skills/deploy-checks/scripts"
 cat "$CHECKS/invariant-check.py" "$CHECKS/invariant_local.py" | \
-  ssh -A -F "$${config.projectDirVar}/.ssh/config" prod 'export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"; INV_SINCE="<DEPLOY_TS>" INV_TIER="<BLAST_RADIUS>" python ${config.prodRemoteProjectDir}/src/odoo/odoo-bin shell -c ${config.prodRemoteOdooConf} -d ${config.prodDbName} --no-http'
+  ssh -A -F "${config.derived.claudeProjectRoot}/.ssh/config" prod 'export PATH="$HOME/${config.derived.nixProfileRel}/bin:$PATH"; INV_SINCE="<DEPLOY_TS>" INV_TIER="<BLAST_RADIUS>" python ${config.prodRemoteProjectDir}/src/odoo/odoo-bin shell -c ${config.prodRemoteOdooConf} -d ${config.prodDbName} --no-http'
 ```
 
 - Substitute `<DEPLOY_TS>` with the Step-5 value and `<BLAST_RADIUS>` with the

@@ -7,9 +7,9 @@ in ''
 
 Seed for Claude Code's **per-project persistent memory** — a plain-markdown
 graph (atomic `nodes/` linked via `[[wikilinks]]`), a session `journal/`, and a
-mutable `state.md` the daily standup reads. No services, no dependencies; you
-can open, edit, or delete any file in any editor and Claude picks it up next
-session.
+mutable `state.md` the daily standup reads. No services are needed. You can
+open, edit, or delete any file in any editor and Claude picks it up next
+session. The installer requires Bash, standard Unix utilities, and Node.js.
 
 This replaces the old prose `CLAUDE_MEMORY_SETUP.md` guide: instead of a
 document describing how to build the system, this **is** the system, ready to
@@ -18,11 +18,13 @@ copy into place.
 ## Where memory lives
 
 Claude Code loads memory from a path derived from the project's absolute path,
-with `/` replaced by `-`:
+with every non-ASCII-alphanumeric UTF-16 code unit replaced by `-`. Slugs
+longer than 200 characters use their first 200 characters plus a hash suffix
+computed from the original absolute path, matching Claude Code 2.1.263:
 
 ```
 $HOME/.claude/projects/<project-slug>/memory/
-# e.g. $HOME/${config.projectName}
+# e.g. /home/mark/projects/${config.projectName}
 #   ->  $HOME/.claude/projects/-home-mark-projects-${config.projectName}/memory/
 ```
 
@@ -34,7 +36,9 @@ $HOME/.claude/projects/<project-slug>/memory/
 > only to **re-seed** (after wiping), to bootstrap a **fresh machine**, or to
 > seed **another project**. The installer refuses to overwrite existing memory.
 
-From the project you want memory for:
+After the project setup steps in the root README, run from the project root.
+The installer loads Node.js from the configured development profile, or uses
+Node.js already on `PATH`:
 
 ```bash
 bash .claude/memory-template/scripts/init-memory.sh
@@ -42,9 +46,25 @@ bash .claude/memory-template/scripts/init-memory.sh
 bash .claude/memory-template/scripts/init-memory.sh /home/mark/projects/some-odoo
 ```
 
+Before installing a development profile, use the project's pinned development
+shell (after setup has generated the configuration and dependency locks):
+
+```bash
+nix develop --command bash .claude/memory-template/scripts/init-memory.sh
+```
+
+A standalone copy requires Node.js on `PATH`. If Node.js is missing, the
+installer reports an error before creating a memory directory.
+
 It computes the slug, copies this template to the slug path, substitutes the
 `__MEMORY_DIR__` placeholder with the real absolute path, drops the installer +
 this README from the live copy, and makes the scripts executable.
+
+To resolve the same path for other tools without installing memory:
+
+```bash
+bash .claude/memory-template/scripts/memory-path.sh /home/mark/projects/some-odoo
+```
 
 **Manual alternative:** copy everything except `README.md` and
 `scripts/init-memory.sh` to the slug path, then replace every `__MEMORY_DIR__`
@@ -60,6 +80,7 @@ occurrence with that absolute path (`grep -rl __MEMORY_DIR__`).
   - `user_role.md` — **stub**; fill it in on first bootstrap.
 - `journal/` — chronological session logs (one file per day).
 - `scripts/`
+  - `memory-path.sh`: resolve the Claude memory directory with the installer's slug rules.
   - `standup.sh` — daily continuity render (idempotent; GNU + BSD/macOS `date`/`stat`).
   - `next_id.sh` — allocate the next `state.md` item ID under a lock (two
     parallel sessions must not hand out the same one); rebuilds a lost counter.

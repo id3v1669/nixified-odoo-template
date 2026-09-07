@@ -299,7 +299,8 @@ function maybeRefreshUsage() {
   // via env (not baked into the command string). stdio is ignored and the child
   // is unref'd so this process exits without waiting on curl.
   const tmp = `${CACHE_FILE}.${process.pid}.tmp`;
-  const q = JSON.stringify;
+  // Shell arguments need literal quoting; JSON strings still expand $() and `...`.
+  const q = (value) => "'" + value.replace(/'/g, "'\\''") + "'";
   const script =
     `curl -sf --max-time ${CURL_TIMEOUT_S}` +
     ` -H "Authorization: Bearer $USAGE_TOKEN"` +
@@ -310,11 +311,17 @@ function maybeRefreshUsage() {
     ` || rm -f ${q(tmp)}`;
 
   try {
-    const child = spawn("/bin/bash", ["-c", script], {
+    const child = spawn("bash", ["-c", script], {
       detached: true,
       stdio: "ignore",
       env: { ...process.env, USAGE_TOKEN: token },
     });
+    // Missing executables fail asynchronously; try/catch cannot handle ENOENT.
+    child.on("error", () => {
+      try { fs.unlinkSync(LOCK_FILE); } catch {}
+    });
     child.unref();
-  } catch {}
+  } catch {
+    try { fs.unlinkSync(LOCK_FILE); } catch {}
+  }
 }

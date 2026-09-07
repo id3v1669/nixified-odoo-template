@@ -26,6 +26,7 @@ let
       nativeBuildInputs = [ pkgs."postgresql_${toString config.postgres}" ];
       ODOO_SOURCE = source;
       ODOO_SERVER = project.packages.prod-server;
+      DEV_SERVER = project.packages.dev-server;
       RESTORE_COMMAND = "${project.packages.download-backup}/bin/download-backup";
       DEBUG_COMMAND = "${project.packages.create-debug-venv}/bin/create-debug-venv";
       PROFILE_REL = config.derived.nixProfileRel;

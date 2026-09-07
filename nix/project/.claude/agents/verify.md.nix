@@ -20,7 +20,7 @@ reviewer's decisive lines — and where the code is (worktree path, or repo + co
 ## Method
 
 1. Read the cited lines AND their callers / callees. Anything tree-wide goes
-   through `python3 $${config.projectDirVar}/.claude/skills/find-code/lsp.py who <symbol>`
+   through `python3 "${config.derived.claudeProjectRoot}/.claude/skills/find-code/lsp.py" who <symbol>`
    (MRO-aware, whole tree) — never a hand-scoped grep. Do not trust the
    reviewer's paraphrase of a line; read the line.
 2. Make the failure scenario happen on paper: fix the exact input / state, walk

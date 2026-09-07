@@ -31,9 +31,9 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return Path(result.stdout.strip().splitlines()[-1]) / "bin" / name
 
-    def run_script(self, executable, *args, stdin="", env=None):
+    def run_script(self, executable, *args, stdin="", env=None, cwd=None):
         result = subprocess.run(
-            [str(executable), *args], cwd=self.project,
+            [str(executable), *args], cwd=cwd or self.project,
             env={**os.environ, **(env or {})}, input=stdin,
             capture_output=True, text=True,
         )
@@ -81,6 +81,99 @@ class RuntimeTests(unittest.TestCase):
                 args = json.loads(result.stdout)
                 self.assertEqual(args[:3], [str(source / "odoo-bin"), "shell", "argument with spaces"])
                 self.assertEqual(args[3:], ["--dev=reload,qweb,werkzeug,xml"] if dev else [])
+
+    def test_launcher_uses_current_project_over_stale_export(self):
+        source = self.project / "src/odoo"
+        source.mkdir(parents=True)
+        (source / "odoo-bin").write_text('print("current project")\n')
+        (self.project / "config.nix").write_text("{}")
+        (self.project / "flake.nix").write_text("{}")
+        (self.project / ".nixodoo").mkdir()
+        (self.project / ".nixodoo/manifest.json").write_text(json.dumps({
+            "configDigest": "test-digest",
+            "configSourceDigest": hashlib.sha256(b"{}").hexdigest(),
+        }))
+        other = self.project / "other"
+        other.mkdir()
+        exe = self.build("odoo")
+        result = self.run_script(exe, env={"ODOO19_PROJECT_DIR": str(other)})
+        self.assertEqual(result.stdout.strip(), "current project")
+
+    def test_service_launcher_preserves_explicit_root_from_home_with_source_marker(self):
+        source = self.project / "src/odoo"
+        source.mkdir(parents=True)
+        (source / "odoo-bin").write_text('print("service project")\n')
+        home = self.project / "home"
+        (home / "src/odoo").mkdir(parents=True)
+        exe = self.build("odoo")
+        result = self.run_script(exe, cwd=home,
+                                 env={"HOME": str(home), "ODOO19_PROJECT_DIR": str(self.project)})
+        self.assertEqual(result.stdout.strip(), "service project")
+
+    def test_nested_setup_anchors_state_and_preserves_relative_output_destination(self):
+        (self.project / "config.nix").write_text("{}")
+        (self.project / "flake.nix").write_text("{}")
+        nested = self.project / "src/custom/nested"
+        nested.mkdir(parents=True)
+        (self.project / "password").write_text("project-secret\n")
+        home = self.project / "home"
+        home.mkdir()
+        tools = self.project / "tools"
+        tools.mkdir()
+        for command, body in {
+            "systemctl": "exit 0",
+            "initdb": 'mkdir -p "$PGDATA"; touch "$PGDATA/postgresql.conf"',
+        }.items():
+            tool = tools / command
+            tool.write_text("#!/bin/sh\n" + body + "\n")
+            tool.chmod(0o755)
+        environment = {"HOME": str(home), "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                       "ODOO19_PROJECT_DIR": str(self.project / "foreign")}
+        for command in ("create-env", "setup-postgres", "create-odoo-config", "create-nginx-config"):
+            exe = self.build(command, {"dbPasswordFile": "password"})
+            self.run_script(exe, cwd=nested, env=environment, stdin="\n" * 9)
+            if command == "create-env":
+                with (self.project / ".env").open("a") as stream:
+                    stream.write("ODOO19_PROJECT_DIR=" + shlex.quote(str(self.project / "old-location")) + "\n")
+        self.assertTrue((self.project / ".env").is_file())
+        self.assertTrue((self.project / ".postgres/postgresql.conf").is_file())
+        self.assertTrue((self.project / ".nginx/nginx.conf").is_file())
+        parser = configparser.ConfigParser()
+        parser.read(self.project / "odoo.conf")
+        self.assertEqual(parser["options"]["logfile"], str(self.project / "odoo.log"))
+        self.assertEqual(parser["options"]["db_password"], "project-secret")
+        unit = (home / ".config/systemd/user/postgres.service").read_text()
+        self.assertIn("Environment=PGDATA=" + str(self.project / ".postgres"), unit)
+        exe = self.build("create-systemd-service")
+        self.run_script(exe, "--output-dir", "units", cwd=nested, env=environment)
+        unit = (nested / "units/odoo.service").read_text()
+        self.assertIn("WorkingDirectory=" + str(self.project), unit.splitlines())
+        self.assertTrue((self.project / ".logrotate.conf").is_file())
+        self.assertEqual(sorted(path.name for path in nested.iterdir()), ["units"])
+
+    def test_service_setup_does_not_persist_project_root_in_shell(self):
+        home = self.project / "home"
+        home.mkdir()
+        bashrc = home / ".bashrc"
+        bashrc.write_text("# user's shell configuration\n")
+        tools = self.project / "tools"
+        tools.mkdir()
+        systemctl = tools / "systemctl"
+        systemctl.write_text("#!/bin/sh\nexit 0\n")
+        systemctl.chmod(0o755)
+        exe = self.build("create-systemd-service")
+        self.run_script(exe, env={"HOME": str(home), "PATH": str(tools) + os.pathsep + os.environ["PATH"]})
+        (self.project / "config.nix").write_text("{}")
+        (self.project / "flake.nix").write_text("{}")
+        nested = self.project / "nested"
+        nested.mkdir()
+        result = subprocess.run([str(exe)], cwd=nested,
+                                env={**os.environ, "HOME": str(home), "PATH": str(tools) + os.pathsep + os.environ["PATH"]},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(bashrc.read_text(), "# user's shell configuration\n")
+        self.assertIn("WorkingDirectory=" + str(self.project),
+                      (home / ".config/systemd/user/odoo.service").read_text().splitlines())
 
     def test_odoo_config_reads_runtime_values(self):
         self.write_env()

@@ -4,10 +4,11 @@
 #
 # Usage: wt-link.sh <source_tree> <dest_farm>
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wt-common.sh"
-
 SRC_TREE="${1:?usage: wt-link.sh <source_tree> <dest_farm>}"
 FARM="${2:?usage: wt-link.sh <source_tree> <dest_farm>}"
+case "$SRC_TREE" in /*) ;; *) SRC_TREE="$PWD/$SRC_TREE" ;; esac
+case "$FARM" in /*) ;; *) FARM="$PWD/$FARM" ;; esac
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/wt-common.sh"
 [ -d "$SRC_TREE" ] || { echo "ERROR: source tree not found: $SRC_TREE" >&2; exit 1; }
 
 mkdir -p "$FARM"

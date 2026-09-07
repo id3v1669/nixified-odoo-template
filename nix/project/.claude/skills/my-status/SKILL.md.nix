@@ -175,7 +175,7 @@ guard (step 8).
 Keeps the password out of the transcript (`source`d, not pasted):
 
 ```bash
-set -a; source "$${config.projectDirVar}/.env"; set +a
+set -a; source "${config.derived.claudeProjectRoot}/.env"; set +a
 python3 - <<'PY'
 import json, os, urllib.request
 URL = os.environ["ODOO_URL_PROD"].rstrip("/") + "/jsonrpc"

@@ -159,7 +159,7 @@ Subagents spawn with fresh context and do NOT inherit the session's standup or f
 Derive the per-user memory dir from the project root env var (NOT `pwd` — the pipeline may run from a subdirectory); resolve once:
 
 ```bash
-MEM="$HOME/.claude/projects/$(echo "$${config.projectDirVar}" | tr '/' '-')/memory"
+MEM="$(bash "${config.derived.claudeProjectRoot}/.claude/memory-template/scripts/memory-path.sh" "${config.derived.claudeProjectRoot}")"
 echo "$MEM"
 ```
 
@@ -200,10 +200,10 @@ having higher priority than your defaults.
 <body of feedback_workflow.md>
 
 ### Rule 4 — Shared language
-If `$${config.projectDirVar}/CONTEXT.md` exists, Read it before starting.
+If `${config.derived.claudeProjectRoot}/CONTEXT.md` exists, Read it before starting.
 Use its canonical terms for model/field/method names, field strings,
 labels and docs; the `_Avoid_` synonyms are red flags. Decision records
-live in `$${config.projectDirVar}/docs/adr/` — do not re-litigate or
+live in `${config.derived.claudeProjectRoot}/docs/adr/` — do not re-litigate or
 silently "fix" what an ADR records as deliberate.
 
 ### Return protocol
@@ -425,9 +425,9 @@ ${lib.optionalString (config.statusMcp == "teams") ''
 8. **Bring up this session's isolated env.** Derive a branch slug from the task —
    `<${lib.toLower config.ticketPrefix}-key-lower>-<short-kebab-desc>` (e.g. `${lib.toLower config.ticketPrefix}-1234-cash-in-cogs`) — then:
    ```bash
-   bash "$${config.projectDirVar}/.claude/skills/worktree-env/scripts/wt-start.sh" <slug>
+   bash "${config.derived.claudeProjectRoot}/.claude/skills/worktree-env/scripts/wt-start.sh" <slug>
    ```
-   It adds a worktree off `origin/${config.odooVersion}` as branch `<slug>`, allocates a free port,
+   It adds a worktree off `origin/${config.derived.customRepoBranch}` as branch `<slug>`, allocates a free port,
    builds the session farm, restores `wt_<slug>` from the prod seed dump, and starts
    `odoo${config.serviceSuffix}-wt@<slug>.service`. **Capture the printed `WORKTREE:`/`CONF:`/`URL:`/`DB:`/
    `PORT:` as `<WT>`/`<CONF>`/`<URL>`/`<DB>`/`<PORT>`** — every later phase uses them.
@@ -448,7 +448,7 @@ Spawn the **`dev`** subagent:
 > Your task: <TASK DESCRIPTION>.
 > **Work in the worktree `<WT>`** — all file edits and any `git` commands run
 > there (module files are at `<WT>/<module>/…`). Do NOT touch
-> `$${config.projectDirVar}/src/${config.customRepoName}` (the user's main checkout).
+> `${config.derived.claudeProjectRoot}/src/${config.customRepoName}` (the user's main checkout).
 > Write complete, production-ready code following the project rules above.
 > Write the tests ALONGSIDE the code (project Rule 2 — every change ships
 > with tests): `TransactionCase` tagged `('post_install', '-at_install')`,
@@ -515,7 +515,7 @@ returns no closing block.
    session.
 1. Refresh the env (picks up any module added during dev) and stop its Odoo:
    ```bash
-   bash "$${config.projectDirVar}/.claude/skills/worktree-env/scripts/wt-start.sh" <slug>
+   bash "${config.derived.claudeProjectRoot}/.claude/skills/worktree-env/scripts/wt-start.sh" <slug>
    systemctl --user stop odoo${config.serviceSuffix}-wt@<slug>.service
    ```
    (only THIS session's Odoo stops; the user's `odoo${config.serviceSuffix}.service` and other sessions
@@ -580,7 +580,7 @@ After the gate passes, spawn the **`documenter`** subagent:
 > <PROJECT_RULES_BLOB>
 >
 > Document this run's changes. **Work in the worktree `<WT>`** — never in
-> `$${config.projectDirVar}/src/${config.customRepoName}`.
+> `${config.derived.claudeProjectRoot}/src/${config.customRepoName}`.
 > Task: <TASK-KEY> — <one-line summary>. Changed files: <ALL_FILES_CHANGED>.
 > For each changed module: create/update the OCA readme fragments
 > (`readme/*.rst`), update any `readme/*.puml` schema the change touches (or
@@ -688,8 +688,8 @@ Spawn a **general-purpose** subagent:
 >
 > The addons live in a NESTED git repo and this run's code is in a WORKTREE of
 > it, already on the task branch. **Run everything from the worktree:** `cd <WT>`
-> — the `${config.customRepoName}` repo (origin), base `${config.odooVersion}`, current branch `<slug>`
-> (created off `origin/${config.odooVersion}`). All git/gh/commit commands run here, never in the
+> — the `${config.customRepoName}` repo (origin), base `${config.derived.customRepoBranch}`, current branch `<slug>`
+> (created off `origin/${config.derived.customRepoBranch}`). All git/gh/commit commands run here, never in the
 > parent repo or the user's main checkout `src/${config.customRepoName}`.
 >
 > 1. `git status` / `git diff` — review what changed (you are already on branch
@@ -720,7 +720,7 @@ Spawn a **general-purpose** subagent:
 > 5. Create PR (title = the commit header; body = the documenter's
 >    PR_DESCRIPTION below, verify the ${config.ticketPrefix} key is in it):
 >    ```
->    gh pr create --base ${config.odooVersion} \
+>    gh pr create --base ${config.derived.customRepoBranch} \
 >      --title "type(module_name): short description" \
 >      --body "<PR_DESCRIPTION>"
 >    ```
@@ -801,10 +801,10 @@ Collect the new IDs assigned — cite them in the journal.
 Run `ALL_DECISIONS` (and the grill's Alignment Summary, if Phase 1 grilled)
 through the `domain-modeling` three-part test: hard to reverse + surprising
 without context + a real trade-off. Each qualifying decision → write
-`$${config.projectDirVar}/docs/adr/NNNN-<slug>.md` per the skill's format
+`${config.derived.claudeProjectRoot}/docs/adr/NNNN-<slug>.md` per the skill's format
 (task key inside). Most runs produce zero ADRs — that is the intended shape.
 Also flush any glossary terms that resolved during the run but were not yet
-written to `$${config.projectDirVar}/CONTEXT.md`.
+written to `${config.derived.claudeProjectRoot}/CONTEXT.md`.
 
 #### Step 3: Write session block to journal
 

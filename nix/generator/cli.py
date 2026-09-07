@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import contextmanager
+import ctypes
 import hashlib
 import json
 import os
@@ -159,6 +160,53 @@ def lock_dependencies(directory, tools, *, requirements=None):
     run([*arguments, 'lock', '--no-python-downloads', '--python', tools / 'bin/python'], cwd=directory)
 
 
+def publish_new_project(stage, destination):
+    """Atomically publish on supported Linux systems, without replacing a racer."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = libc.renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    # AT_FDCWD and RENAME_NOREPLACE. Never fall back to an overwriting rename.
+    if rename(-100, os.fsencode(stage), -100, os.fsencode(destination), 1):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(destination))
+
+
+def install_initial_tree(stage, destination):
+    """Publish into an existing directory without replacing it or existing files."""
+    created = []
+    try:
+        for source in sorted(stage.rglob('*')):
+            relative = source.relative_to(stage)
+            target = checked_path(destination, relative)
+            if source.is_dir():
+                target.mkdir(mode=stat.S_IMODE(source.stat().st_mode))
+                original, snapshot = target.lstat(), None
+            else:
+                # Capture before linking: later in-place edits also change the
+                # stage inode and must not become our rollback baseline.
+                original = source.lstat()
+                snapshot = read_state(stage, relative)
+                # The stage is on the same filesystem. Linking publishes each
+                # prepared file atomically and refuses even a dangling symlink.
+                os.link(source, target, follow_symlinks=False)
+            created.append((target, original, snapshot))
+    except BaseException:
+        for target, original, snapshot in reversed(created):
+            try:
+                current = checked_path(destination, target.relative_to(destination)).lstat()
+                if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+                    continue
+                if stat.S_ISDIR(current.st_mode):
+                    target.rmdir()
+                elif read_state(destination, target.relative_to(destination)) == snapshot:
+                    target.unlink()
+            except (OSError, ConflictError):
+                # Preserve concurrent files and directories containing them.
+                pass
+        raise
+
+
 def init_project(arguments, framework_reference, system):
     display_destination = arguments.destination.absolute()
     destination = checked_path(resolve_root(display_destination.parent), display_destination.name)
@@ -166,6 +214,7 @@ def init_project(arguments, framework_reference, system):
         raise ValueError(f'initialization requires a new or empty directory: {destination}')
     if not destination.parent.is_dir():
         raise ValueError(f'parent directory does not exist: {destination.parent}')
+    original_destination = destination.stat() if destination.exists() else None
     with tempfile.TemporaryDirectory(prefix='.nixodoo-init-', dir=destination.parent) as temporary:
         temporary = resolve_root(temporary)
         config = temporary / 'config.nix'
@@ -192,13 +241,21 @@ def init_project(arguments, framework_reference, system):
             apply_resolved_update(stage, candidate)
             run(['git', 'init', '--initial-branch=main', stage])
             run(['git', 'add', '--all'], cwd=stage)
-            # Check again after preparation, before replacing an empty destination.
+            # Check again after preparation. An existing directory may be the
+            # caller's cwd, so retain its identity when publishing the tree.
             checked_path(destination.parent, destination.name)
             if destination.exists():
-                if any(destination.iterdir()):
+                current = destination.stat()
+                if (original_destination is None
+                        or (current.st_dev, current.st_ino)
+                        != (original_destination.st_dev, original_destination.st_ino)
+                        or any(destination.iterdir())):
                     raise ConflictError([str(destination)], 'initialization target became nonempty')
-                destination.rmdir()
-            os.rename(stage, destination)
+                install_initial_tree(stage, destination)
+            else:
+                if original_destination is not None:
+                    raise ConflictError([str(destination)], 'initialization target disappeared')
+                publish_new_project(stage, destination)
     print(f'Created {display_destination}')
     return 0
 

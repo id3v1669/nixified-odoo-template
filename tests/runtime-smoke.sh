@@ -55,4 +55,14 @@ ln -s "$ODOO_SERVER" "$HOME/$PROFILE_REL"
 ./.venv/bin/python -m pip --version
 ./.venv/bin/dev-python -c 'import psycopg2, ldap'
 test "$(readlink .venv/bin/dev-python)" = "$HOME/$PROFILE_REL/bin/python"
+# Relocated projects can retain an old absolute root in their private .env.
+touch config.nix flake.nix
+ln -s "$project/socket" "$project/.postgres"
+cat > .env <<ENV
+ODOO_PROJECT_DIR=$project/old-location
+PGPORT=$PGPORT
+PGUSER=$PGUSER
+PGDATABASE=smoke
+ENV
+test "$(ODOO_PROJECT_DIR="$project/another-project" "$DEV_SERVER/bin/psql" -Atc 'SELECT current_database()')" = smoke
 touch "${out:?Nix must set the output path}"

@@ -11,14 +11,14 @@ argument-hint: "[blast-radius <git-range> | invariants [since-timestamp]]"
 
 # Deploy checks
 
-Two standalone scripts under `$${config.projectDirVar}/.claude/skills/deploy-checks/scripts/`.
+Two standalone scripts under `${config.derived.claudeProjectRoot}/.claude/skills/deploy-checks/scripts/`.
 Wire them into your deploy procedure: blast radius decides how much post-deploy
 checking a change earns; the invariant check is that checking.
 
 ## Blast radius — tag a change set before deploying
 
 ```bash
-python3 .../scripts/blast-radius.py --repo src/${config.customRepoName} --range origin/${config.odooVersion}..HEAD
+python3 .../scripts/blast-radius.py --repo src/${config.customRepoName} --range origin/${config.derived.customRepoBranch}..HEAD
 ```
 
 Prints one `MODULE <name>: <tier> -- <reasons>` line per touched module, then
@@ -45,7 +45,7 @@ a config file. Local database:
 
 ```bash
 INV_SINCE="<deploy time UTC, YYYY-MM-DD HH:MM:SS>" \
-  ${config.derived.odooCmd} shell -c $${config.projectDirVar}/odoo.conf --no-http \
+  ${config.derived.odooCmd} shell -c "${config.derived.claudeProjectRoot}/odoo.conf" --no-http \
   < .../scripts/invariant-check.py
 ```
 ${lib.optionalString (config.prodSshHost != "") ''
@@ -55,7 +55,7 @@ mandatory next to a live service):
 
 ```bash
 cat .../scripts/invariant-check.py .../scripts/invariant_local.py | \
-  ssh -F "$${config.projectDirVar}/.ssh/config" prod \
+  ssh -F "${config.derived.claudeProjectRoot}/.ssh/config" prod \
   'INV_SINCE="..." python <odoo-bin> shell -c <conf> -d <db> --no-http'
 ```
 
@@ -83,7 +83,7 @@ ticket — the usual cause is an override changing a core field's computed
 schema, see `code-patterns` references/migrations.md):
 
 ```bash
-${config.derived.odooCmd} -c $${config.projectDirVar}/odoo.conf -u <module> --workers 0 --stop-after-init \
+${config.derived.odooCmd} -c "${config.derived.claudeProjectRoot}/odoo.conf" -u <module> --workers 0 --stop-after-init \
      --log-handler odoo.schema:DEBUG --logfile=/dev/stdout | grep -E "odoo.schema:"
 ```
 

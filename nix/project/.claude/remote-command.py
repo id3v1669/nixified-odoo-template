@@ -37,7 +37,7 @@ if args.action == "deploy":
     if link and link != ["--link-addons"]:
         parser.error("unknown deploy option")
     lines += [f"cd {remote_path(project + '/src/' + config['customRepoName'])}",
-              f"git pull origin {quote(config['odooVersion'])}"]
+              f"git pull origin {quote(config['derived']['customRepoBranch'])}"]
     if link:
         lines += [f"cd {remote_path(project)}", config["prodLinkAddonsCmd"]]
     lines += [f"{base} --workers 0 {flag} {quote(modules)} --stop-after-init --logfile=/dev/stdout",

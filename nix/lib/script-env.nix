@@ -3,6 +3,7 @@ config:
   MODULE_PREFIX = config.modulePrefix;
   TICKET_PREFIX = config.ticketPrefix;
   CUSTOM_REPO_NAME = config.customRepoName;
+  CUSTOM_REPO_BRANCH = config.derived.customRepoBranch;
   PROD_REMOTE_PROJECT_DIR = config.prodRemoteProjectDir;
   PROD_REMOTE_ODOO_CONF = config.prodRemoteOdooConf;
   PROD_DB_NAME = config.prodDbName;

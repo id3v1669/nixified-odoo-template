@@ -9,12 +9,25 @@ pkgs.writeShellScriptBin name (
       vars)
   + ''
       export NIXODOO_PYTHON=${pkgs.python3}/bin/python
-      if [ -n "''${PROJECT_DIR_VAR:-}" ]; then
-          if [ -z "''${!PROJECT_DIR_VAR}" ]; then
-              printf -v "$PROJECT_DIR_VAR" '%s' "$PWD"
-          fi
-          export "$PROJECT_DIR_VAR"
+    ''
+  + builtins.readFile ./project-root.sh
+  # Setup state and configured relative files belong to the selected project.
+  # Explicit output directories retain their usual caller-relative semantics.
+  + lib.optionalString (name == "create-systemd-service") ''
+      if [ "$#" -eq 2 ] && [ "$1" = --output-dir ]; then
+        case "$2" in
+          /*) ;;
+          *) set -- "$1" "$PWD/$2" ;;
+        esac
       fi
+    ''
+  + lib.optionalString (builtins.elem name [
+      "create-env" "update-repos" "bootstrap-deps" "create-odoo-config"
+      "create-nginx-config" "create-systemd-service" "setup-postgres"
+      "create-debug-venv" "setup-prod" "setup-test" "setup-dev"
+      "create-aws-config" "download-backup" "setup-ssh-access" "create-vscode-settings"
+    ]) ''
+      cd "''${!PROJECT_DIR_VAR}" || exit 1
     ''
   + builtins.readFile (../scripts + "/${name}.sh")
 )
