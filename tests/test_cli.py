@@ -219,6 +219,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual((self.project / 'nix/scripts/welcome-message.sh').read_bytes(), helper.read_bytes())
         self.assertEqual(self.run_cli('update', '--check', '--from', framework, cwd=self.project).returncode, 0)
 
+    def test_update_reports_dependency_changes_without_a_python_change(self):
+        self.init()
+        framework = self.root / 'dependency update'
+        cli = load_cli()
+        for name in ('nix', 'flake.nix', 'flake.lock'):
+            cli.copy_regular(ROOT / name, framework / name)
+        formats = framework / 'nix/lib/formats.nix'
+        formats.write_text(formats.read_text().replace('[ "websocket-client" ]', '[ "websocket-client" "packaging" ]'))
+        old_lock = (self.project / 'uv.lock').read_bytes()
+        preview = self.run_cli('update', '--check', '--from', framework, cwd=self.project)
+        self.assertEqual(preview.returncode, 1, preview.stderr)
+        self.assertIn('refresh-deps', preview.stdout)
+        applied = self.run_cli('update', '--from', framework, cwd=self.project)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertIn('refresh-deps', applied.stdout)
+        self.assertEqual((self.project / 'uv.lock').read_bytes(), old_lock)
+
     def test_cli_values_escape_nix_interpolation(self):
         cli = load_cli()
         expected = {'text': '${builtins.abort "must stay literal"}\npath\\name', 'flag': True, 'count': 42, 'fraction': 1.5}

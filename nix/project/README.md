@@ -11,7 +11,7 @@ tracked files when preparing the project source. Git initialization is required.
 
 ```bash
 nix run .#update-repos
-nix run .#bootstrap-deps
+nix run .#refresh-deps
 nix profile add .#dev-server
 nix run .#setup-dev
 ```
@@ -22,7 +22,8 @@ Use the `projectName` from `config.nix` in place of `PROJECT_NAME`.
 Production and test profiles are available as `.#prod-server` and `.#test-server`.
 
 Setup creates `.env`, `odoo.conf`, nginx configuration, and systemd user units.
-Those commands run explicitly and keep existing runtime configuration files.
+Those commands run explicitly. They keep existing `.env`, `odoo.conf`, and
+nginx configuration, and regenerate systemd units and logrotate configuration.
 Inspect the instructions they print before enabling services.
 
 ## Configuration and updates
@@ -56,3 +57,18 @@ under `repositories.base` and `repositories.addons` generate `repos.yaml`
 and `addons.yaml`. Run `nix run .#update-repos` to apply checkout changes.
 
 Use Conventional Commits for project and addon changes.
+
+## Credentials and migration
+
+Keep credentials in ignored local files. An existing `.env` remains unchanged.
+When creating it, a password entered at the prompt overrides `dbPasswordFile`;
+without either, the development default is `odoo`. Configuration stores only
+credential paths because Nix copies `config.nix` into its store.
+
+Legacy migration uses the framework's `migrate` command from outside the old
+project. It requires a Git repository, imports known settings, and backs up
+legacy configuration locally with owner-only permissions. Imported repository
+and editor files retain their original bytes unless selected with `--manage`.
+Use `--baseline` to prove unchanged legacy framework files and `--preserve` for
+project-owned content. Preview with `--check`, then review the staged result
+before committing. The framework README describes the full migration workflow.

@@ -90,7 +90,7 @@
             }) [ "create-env" "bootstrap-deps" "update-repos" "create-odoo-config"
               "create-nginx-config" "create-systemd-service" "setup-postgres"
               "create-aws-config" "setup-ssh-access" "create-vscode-settings" ]);
-        });
+        } // import ./nix/lib/checks.nix { inherit inputs system; });
       devShells = forSystems (system:
         let pkgs = import nixpkgs { inherit system; }; in {
           default = pkgs.mkShell {

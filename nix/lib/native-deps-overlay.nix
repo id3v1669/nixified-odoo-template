@@ -42,6 +42,17 @@ final: prev:
     in {
         # Legacy python packages that only have sdist and need setuptools to build
         # (evaluated lazily; harmless when a package is absent from uv.lock)
+        gevent = addSetuptoolsBuildDep prev.gevent;
+        # ReportLab 3.5.59 passes this pointer to a const-char output argument.
+        # GCC 14 rejects the mismatched declaration in Odoo 16's pinned source.
+        reportlab = (addSetuptoolsBuildDep prev.reportlab).overrideAttrs (old: {
+            patches = (old.patches or []) ++ pkgs.lib.optional (old.version == "3.5.59")
+                ../patches/reportlab-const-encoding.patch;
+        });
+        pyusb = addSetuptoolsBuildDep prev.pyusb;
+        pypdf2 = addSetuptoolsBuildDep prev.pypdf2;
+        psutil = addSetuptoolsBuildDep prev.psutil;
+        markupsafe = addSetuptoolsBuildDep prev.markupsafe;
         ofxparse = addSetuptoolsBuildDep prev.ofxparse;
         vobject = addSetuptoolsBuildDep prev.vobject;
         olefile = addSetuptoolsBuildDep prev.olefile;

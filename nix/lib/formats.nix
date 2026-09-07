@@ -30,7 +30,8 @@ let
       ENV = { DEFAULT_REPO_PATTERN = config.defaultRepoPattern; ODOO_VERSION = config.odooVersion; };
     } ] else addonDocs);
   pythonMinor = lib.toInt (builtins.elemAt (lib.splitString "." config.python) 1);
-  overrides = lib.optional (pythonMinor >= 13)
+  legacyRuntime = lib.optional (config.derived.odooMajor <= 17) "setuptools<81";
+  overrides = legacyRuntime ++ lib.optional (pythonMinor >= 13)
     "markupsafe==3.0.3 ; python_full_version >= '3.13'"
     ++ lib.optional (pythonMinor >= 14)
     "gevent==26.8.0 ; python_full_version >= '3.14' and sys_platform != 'win32'";
@@ -41,7 +42,7 @@ let
       description = "Odoo ${config.odooVersion} Development Environment";
       readme = "README.md";
       requires-python = ">=${config.python},<3.${toString (pythonMinor + 1)}";
-      dependencies = [ "websocket-client" ];
+      dependencies = [ "websocket-client" ] ++ legacyRuntime;
     };
   } // lib.optionalAttrs (overrides != [ ]) { tool.uv.override-dependencies = overrides; };
   hook = interpreter: file: {

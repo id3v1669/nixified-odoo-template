@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 from dependencies import plan_metadata
 from transaction import (ConflictError, FileEdit, MANIFEST, apply_update, checked_path,
@@ -237,6 +238,12 @@ def refresh_project(arguments, framework_reference, system):
             expected = candidate / 'tree/pyproject.toml'
             proposed = plan_metadata(originals['pyproject.toml'].decode(), expected.read_text(),
                                      previous_overrides=installed.get('pythonOverrides', []))
+            before = tomllib.loads(originals['pyproject.toml'].decode())
+            after = tomllib.loads(proposed)
+            dependencies_changed = any(before['project'].get(key) != after['project'].get(key)
+                                       for key in ('requires-python', 'dependencies'))
+            dependencies_changed |= (before.get('tool', {}).get('uv', {}).get('override-dependencies', [])
+                                     != after.get('tool', {}).get('uv', {}).get('override-dependencies', []))
             edits = [metadata_edit('pyproject.toml', proposed.encode(), states['pyproject.toml'])]
             if arguments.command == 'refresh-deps':
                 workspace = temporary / 'dependencies'
@@ -260,11 +267,11 @@ def refresh_project(arguments, framework_reference, system):
             if changed and not operations:
                 print('update: .nixodoo/manifest.json')
             report_runtime(installed['config'], current_config)
+            if dependencies_changed and arguments.command != 'refresh-deps':
+                print('Python dependency metadata changed: run nix run .#refresh-deps to update uv.lock.')
             if arguments.check:
                 return 1 if changed else 0
             apply_update(project, candidate, edits=edits)
-            if current_config['python'] != installed['config']['python'] and arguments.command != 'refresh-deps':
-                print('Python changed: run nix run .#refresh-deps to update uv.lock.')
     print('Project metadata refreshed.' if changed else 'Project is up to date.')
     return 0
 

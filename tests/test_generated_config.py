@@ -36,6 +36,12 @@ class GeneratedConfigTests(unittest.TestCase):
         self.assertIn("gevent==26.8.0 ; python_full_version >= '3.14' and sys_platform != 'win32'",
                       data["tool"]["uv"]["override-dependencies"])
 
+    def test_legacy_odoo_has_pkg_resources_runtime_dependency(self):
+        for fixture in ("full-16", "repo-no-s3-17"):
+            data = tomllib.loads((self.fixtures[fixture] / "pyproject.toml").read_text())
+            self.assertIn("setuptools<81", data["project"]["dependencies"])
+            self.assertIn("setuptools<81", data["tool"]["uv"]["override-dependencies"])
+
     def test_claude_without_editor_has_language_server_config(self):
         data = tomllib.loads((self.fixtures["claude-no-editor"] / "odools.toml").read_text())
         self.assertEqual(data["config"][0]["odoo_path"], "${workspaceFolder}/src/odoo")

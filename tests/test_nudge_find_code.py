@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression corpus for template/.../hooks/nudge-find-code.py.
+"""Regression corpus for the generated code navigation hook.
 
 Run from the repo root: python3 tests/test_nudge_find_code.py
 
@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-HOOK = sys.argv[1] if len(sys.argv) > 1 else "template/{% if use_claude_code %}.claude{% endif %}/hooks/nudge-find-code.py"
+HOOK = sys.argv[1] if len(sys.argv) > 1 else "nix/project/.claude/hooks/nudge-find-code.py"
 
 CASES = [
     ("NUDGE", "call-site grep: symbol + parens + alternation",
