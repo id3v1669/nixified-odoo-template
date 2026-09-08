@@ -5,8 +5,8 @@ the vendored generator and build definitions. Source checkouts live in `src/`.
 The generator uses nixpkgs 26.05 and supports Odoo 17–19, Python 3.11–3.14,
 and PostgreSQL 14–17.
 
-Initialization creates a Git repository and stages the generated files without
-committing them. Keep runtime files such as `.env` untracked: Nix uses Git's
+Initialization creates a Git repository on `master` and stages the generated
+files without committing them. Keep runtime files such as `.env` untracked: Nix uses Git's
 tracked files when preparing the project source. Git initialization is required.
 
 ## Development setup
@@ -56,6 +56,89 @@ write permissions, and confirm its tools are available in your Claude Code
 session. The project does not install a Teams MCP server. Messages use HTML;
 the connector workflow has no edit or delete tool, so review the recipient and
 draft before approving a send.
+
+### Nginx managed by NixOS
+
+`ports.nginx` is the frontend listen port, while `ports.http` and
+`ports.gevent` are Odoo's backend ports. Setup copies these values into `.env`
+as `ODOO_NGINX_PORT`, `ODOO_HTTP_PORT`, and `ODOO_GEVENT_PORT`, then generates
+`.nginx/nginx.conf` and an nginx user service.
+
+If the host manages nginx through `services.nginx`, configure a virtual host
+in `/etc/nixos/configuration.nix` (or an imported NixOS module). This example
+uses `ports = { http = 29069; gevent = 29072; nginx = 29080; pg = 29432; };`:
+
+```nix
+{
+  services.nginx = {
+    enable = true;
+    virtualHosts."localhost" = {
+      listen = [ { addr = "127.0.0.1"; port = 29080; } ];
+      extraConfig = ''
+        client_max_body_size 50m;
+      '';
+      locations."/" = {
+        proxyPass = "http://127.0.0.1:29069";
+        recommendedProxySettings = true;
+        extraConfig = ''
+          proxy_read_timeout 30000s;
+          proxy_redirect off;
+        '';
+      };
+      locations."/websocket" = {
+        proxyPass = "http://127.0.0.1:29072";
+        recommendedProxySettings = true;
+        proxyWebsockets = true;
+      };
+    };
+  };
+}
+```
+
+`ports.pg = 29432` sets PostgreSQL's port. Setup writes it as `PGPORT=29432`
+in `.env` and `db_port = 29432` in `odoo.conf`. Odoo connects directly to
+PostgreSQL, so this port needs no nginx location or listener. It must match
+the running PostgreSQL server's port.
+
+Replace the three ports in the nginx example with your project's values.
+The NixOS module does not read the project's `config.nix` or `.env`, so its
+backend ports must match `http_port` and `gevent_port` in `odoo.conf`. Odoo needs
+`proxy_mode = True` and multiple workers for the separate gevent endpoint;
+the generated configuration sets `workers = 4` and enables proxy mode.
+See the [NixOS nginx module options](https://github.com/NixOS/nixpkgs/tree/nixos-26.05/nixos/modules/services/web-servers/nginx)
+for proxy headers and WebSocket support.
+
+If the generated nginx user service is enabled, stop and disable it before
+activating system nginx. For `serviceSuffix = "-acme";`, run:
+
+```bash
+systemctl --user disable --now nginx-acme.service
+```
+
+Use `nginx.service` when the suffix is empty. Enable the Odoo user service
+and logrotate timer, and leave nginx out of setup's printed activation
+commands. NixOS nginx proxies directly to Odoo; it does not load
+the generated `.nginx/nginx.conf`, which is a complete standalone config.
+Setup can still generate that file and the unused user unit.
+
+Apply the host configuration and check the service:
+
+```bash
+sudo nixos-rebuild switch
+sudo systemctl status nginx.service
+curl -I http://localhost:29080/web/login
+```
+
+The example listens only on loopback. For remote access, use the host's
+listening address and hostname and open the chosen frontend TCP port with
+`networking.firewall.allowedTCPPorts`. Keep Odoo's backend ports private.
+If system nginx serves the project on standard HTTP/HTTPS ports instead,
+configure those listeners and TLS on the virtual host; `ports.nginx` then
+only affects the unused generated nginx configuration.
+
+Setup preserves existing `.env`, `odoo.conf`, and `.nginx/nginx.conf`. After
+changing ports in `config.nix`, review those runtime files, refresh and
+reinstall the profile, and restart the affected services.
 
 ### Optional development shell
 

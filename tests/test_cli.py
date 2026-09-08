@@ -54,7 +54,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
 
     def test_init_bootstraps_lock_and_stages_without_committing(self):
-        self.init()
+        with patch.dict(os.environ, {'GIT_CONFIG_COUNT': '1',
+                                     'GIT_CONFIG_KEY_0': 'init.defaultBranch',
+                                     'GIT_CONFIG_VALUE_0': 'main'}):
+            self.init()
+        branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'],
+                                cwd=self.project, capture_output=True, text=True, check=True)
+        self.assertEqual(branch.stdout.strip(), 'master')
         self.assertTrue((self.project / 'uv.lock').is_file())
         self.assertEqual((self.project / 'config.nix').read_bytes(), self.config.read_bytes())
         self.assertEqual((self.project / 'nix/scripts/odoo.sh').stat().st_mode & 0o777, 0o755)

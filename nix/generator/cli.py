@@ -239,7 +239,7 @@ def init_project(arguments, framework_reference, system):
             stage = temporary / 'project'
             stage.mkdir()
             apply_resolved_update(stage, candidate)
-            run(['git', 'init', '--initial-branch=main', stage])
+            run(['git', 'init', '--initial-branch=master', stage])
             run(['git', 'add', '--all'], cwd=stage)
             # Check again after preparation. An existing directory may be the
             # caller's cwd, so retain its identity when publishing the tree.
